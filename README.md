@@ -1,10 +1,10 @@
-# rest-mysql
+# rest_mysql
 Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to newer librairies.
 
 ## Install
 
 ```bash
-pip install rest-mysql
+pip install rest_mysql
 ```
 
 ## Using
