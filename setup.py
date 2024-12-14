@@ -5,13 +5,13 @@ with open('README.md', 'r') as oF:
 
 setup(
 	name='rest_mysql',
-	version='1.0.0',
+	version='1.0.1',
 	description='Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to newer librairies',
 	long_description=long_description,
 	long_description_content_type='text/markdown',
 	project_urls={
-		'Source': 'https://github.com/ouroboroscoding/rest-mysql',
-		'Tracker': 'https://github.com/ouroboroscoding/rest-mysql/issues'
+		'Source': 'https://github.com/ouroboroscoding/rest_mysql',
+		'Tracker': 'https://github.com/ouroboroscoding/rest_mysql/issues'
 	},
 	keywords=['rest','mysql','sql'],
 	author='Chris Nasr - Ouroboros Coding Inc.',
