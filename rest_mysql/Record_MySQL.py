@@ -1575,7 +1575,7 @@ class Record(Record_Base.Record):
 					return "'%s'" % Commands.escape(host, value)
 
 			# Else, if it's a Parent node
-			elif sClass in ['ArrayNode', 'HashNode', 'Parent']:
+			elif sClass in ['Array', 'Hash', 'Parent']:
 
 				# Get the sql section
 				dSQL = node.special('sql')
@@ -1871,7 +1871,7 @@ class Record(Record_Base.Record):
 					dConfig['to_process'].append([k, sType])
 
 			# Else, if it's an object/dict type
-			elif sClass in ['ArrayNode', 'HashNode', 'Parent']:
+			elif sClass in ['Array', 'Hash', 'Parent']:
 
 				# If it has an SQL section
 				dSQL = tree[k].special('sql')
