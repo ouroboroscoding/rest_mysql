@@ -572,7 +572,7 @@ class Record(abc.ABC):
 			return self
 
 		# If the value isn't valid for the field
-		if not self._dStruct['tree'][field].valid(val, [field]):
+		if not self._dStruct['tree'][field].valid(val, level = [ field ]):
 			raise ValueError(self._dStruct['tree'][field].validation_failures)
 
 		# If we need to keep changes
