@@ -11,7 +11,8 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2020-02-12"
 
 # Ouroboros imports
-from tools import clone
+from define import Base, Parent
+from tools import clone, evaluate
 import jsonb
 
 # Python imports
@@ -19,6 +20,7 @@ from enum import IntEnum
 import re
 import sys
 from time import sleep
+from typing import List, Literal as PyLiteral
 
 # Pip imports
 import arrow
@@ -34,18 +36,19 @@ __mdHosts = {}
 # List of available connection
 __mdConnections = {}
 
-# The offset used to calculate timestamps
-__msTimestampTimezone = '+00:00'
-
 # defines
 MAX_RETRIES = 3
 
 # Backwards compatibility and simplicity
 DuplicateException = Record_Base.DuplicateException
 RecordException = Record_Base.RecordException
+RevisionException = Record_Base.RevisionException
 
 # Duplicate record regex
 DUP_ENTRY_REGEX = re.compile('Duplicate entry \'(.*?)\' for key \'(.*?)\'')
+
+# Point regex
+POINT_REGEX = re.compile('POINT\\((\\d+(?:.\\d+)?) (\\d+(?:.\\d+)?)\\)')
 
 ## ESelect
 class ESelect(IntEnum):
@@ -73,16 +76,13 @@ class Literal(object):
 	def get(self):
 		return self._text
 
-def _clear_connection(host):
+def _clear_connection(host: str):
 	"""Clear Connection
 
 	Handles removing a connection from the module list
 
 	Args:
 		host (str): The host to clear
-
-	Returns:
-		None
 	"""
 
 	# If we have the connection
@@ -106,7 +106,7 @@ def _clear_connection(host):
 		# Delete the connection
 		del __mdConnections[host]
 
-def _connection(host, errcnt = 0):
+def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 	"""Connection
 
 	Returns a connection to the given host
@@ -114,6 +114,10 @@ def _connection(host, errcnt = 0):
 	Args:
 		host (str): The name of the host to connect to
 		errcnt (uint): The current error count
+
+	Raises:
+		ConnectionError
+		ValueError
 
 	Returns:
 		Connection
@@ -140,8 +144,7 @@ def _connection(host, errcnt = 0):
 		# Change conversions
 		conv = oCon.decoders.copy()
 		for k in conv:
-			if k in [7]: conv[k] = _converter_timestamp
-			elif k in [10,11,12]: conv[k] = str
+			if k in [10,11,12]: conv[k] = str
 		oCon.decoders = conv
 
 	# Check for errors
@@ -163,39 +166,14 @@ def _connection(host, errcnt = 0):
 	__mdConnections[host] = oCon
 	return oCon
 
-def _converter_timestamp(ts):
-	"""Converter Timestamp
-
-	Converts timestamps received from MySQL into proper integers
-
-	Args:
-		ts (str): The timestamp to convert
-
-	Returns:
-		uint
-	"""
-
-	# If there is no time
-	if ts == '0000-00-00 00:00:00':
-		return 0
-
-	# Replace ' ' with 'T', add milliseconds, and then timezone
-	ts = '%s.000000%s' % (
-		ts.replace(' ', 'T'),
-		__msTimestampTimezone
-	)
-
-	# Conver the string to a timestamp and return it
-	return arrow.get(ts).int_timestamp
-
-def _cursor(host, dictCur = False):
+def _cursor(host: str, dict_cur: bool = False) -> pymysql.cursors.Cursor:
 	"""Cursor
 
 	Returns a cursor for the given host
 
 	Args:
 		host (str): The name of the host
-		dictCur (bool): If true, cursor will use dicts
+		dict_cur (bool): If true, cursor will use dicts
 
 	Return:
 		Cursor
@@ -206,7 +184,7 @@ def _cursor(host, dictCur = False):
 
 	# Try to get a cursor on the connection
 	try:
-		if dictCur:
+		if dict_cur:
 			oCursor = oCon.cursor(pymysql.cursors.DictCursor)
 		else:
 			oCursor = oCon.cursor()
@@ -217,12 +195,12 @@ def _cursor(host, dictCur = False):
 	except :
 		# Clear the connection and try again
 		_clear_connection(host)
-		return _cursor(host, dictCur)
+		return _cursor(host, dict_cur)
 
 	# Return the cursor
 	return oCursor
 
-def _print_sql(type, host, sql):
+def _print_sql(type: str, host: str, sql: str):
 	"""Print SQL
 
 	Print out a message with host and SQL information. Useful for debugging \
@@ -232,9 +210,6 @@ def _print_sql(type, host, sql):
 		type (str): The type of statment
 		host (str): The host the statement will be run on
 		sql (str): The SQL to print
-
-	Returns
-		None
 	"""
 	print('----------------------------------------\n%s - %s - %s\n\n%s\n' % (
 		host,
@@ -250,8 +225,8 @@ class _wcursor(object):
 	always be closed regardless of exceptions
 	"""
 
-	def __init__(self, host, dictCur = False):
-		self.cursor = _cursor(host, dictCur)
+	def __init__(self, host, dict_cur = False):
+		self.cursor = _cursor(host, dict_cur)
 
 	def __enter__(self):
 		return self.cursor
@@ -261,7 +236,7 @@ class _wcursor(object):
 		if exc_type is not None:
 			return False
 
-def add_host(name, info, update=False):
+def add_host(name: str, info: dict, update: bool = False):
 	"""Add Host
 
 	Add a host that can be used by Records
@@ -269,6 +244,7 @@ def add_host(name, info, update=False):
 	Arguments:
 		name (str): The name that will be used to fetch the host credentials
 		info (dict): The necessary credentials to connect to the host
+		update (bool): Optional, only set to True to overwrite existing info
 
 	Returns:
 		bool
@@ -290,7 +266,12 @@ def add_host(name, info, update=False):
 	# Nothing to do, not OK
 	return False
 
-def db_create(name, host = 'primary', charset = None, collate = None):
+def db_create(
+	name: str,
+	host: str = 'primary',
+	charset: str | None = None,
+	collate: str | None = None
+) -> bool:
 	"""DB Create
 
 	Creates a DB on the given host
@@ -315,10 +296,9 @@ def db_create(name, host = 'primary', charset = None, collate = None):
 			sSQL += ' COLLATE %s' % collate
 
 	# Create the DB
-	Commands.execute(host, sSQL)
-	return True
+	return Commands.execute(host, sSQL) and True or False
 
-def db_drop(name, host = 'primary'):
+def db_drop(name: str, host: str = 'primary') -> bool:
 	"""DB Drop
 
 	Drops a DB on the given host
@@ -332,12 +312,11 @@ def db_drop(name, host = 'primary'):
 	"""
 
 	# Delete the DB
-	Commands.execute(host, "DROP DATABASE IF EXISTS `%s%s`" % (
+	return Commands.execute(host, "DROP DATABASE IF EXISTS `%s%s`" % (
 		Record_Base.db_prepend(), name
-	))
-	return True
+	)) and True or False
 
-def db_prepend(pre = None):
+def db_prepend(pre: str | None = None) -> str | None:
 	"""DB Prepend
 
 	Gets or sets the global prefix for all DBs, useful for testing/development
@@ -350,22 +329,7 @@ def db_prepend(pre = None):
 	"""
 	return Record_Base.db_prepend(pre)
 
-def timestamp_timezone(s):
-	"""Timestamp Offset
-
-	Used to deal with dumb mysql servers that return timestamps as a string in \
-	the system's local time
-
-	Arguments:
-		s (str): The timezone offset
-
-	Returns
-		None
-	"""
-	global __msTimestampTimezone
-	__msTimestampTimezone = s
-
-def verbose(set_=None):
+def verbose(set_: bool = None) -> bool | None:
 	"""Verbose
 
 	Sets/Gets the debug flag
@@ -387,10 +351,10 @@ class Commands(object):
 	"""
 
 	# Output SQL for debugging?
-	_verbose = False
+	_verbose: bool = False
 
 	@classmethod
-	def escape(cls, host, value):
+	def escape(cls, host: str, value = any) -> str:
 		"""Escape
 
 		Used to escape string values for the DB
@@ -398,7 +362,9 @@ class Commands(object):
 		Args:
 			host (str): The name of the connection to escape for
 			value (str): The value to escape
-			rel (str): The relationship of the server, master or slave
+
+		Raises:
+			Exception
 
 		Returns:
 			str
@@ -434,7 +400,7 @@ class Commands(object):
 		return sRet
 
 	@classmethod
-	def execute(cls, host, sql, errcnt=0):
+	def execute(cls, host: str, sql: str, errcnt: int = 0) -> int:
 		"""Execute
 
 		Used to run SQL that doesn't return any rows
@@ -442,10 +408,15 @@ class Commands(object):
 		Args:
 			host (str): The name of the connection to execute on
 			sql (str|tuple): The SQL (or SQL plus a list) statement to run
-			errcnt (uint): DO NOT SET, used internally
+			errcnt (unsigned int): DO NOT SET, used internally
+
+		Raises:
+			ConnectionError
+			DuplicateException
+			ValueError
 
 		Returns:
-			uint
+			unsigned int
 		"""
 
 		# Print debug if requested
@@ -489,13 +460,13 @@ class Commands(object):
 				if oMatch:
 
 					# Raise a Duplicate Record Exception
-					raise Record_Base.DuplicateException(
+					raise DuplicateException(
 						oMatch.group(1),
 						oMatch.group(2)
 					)
 
 				# Else, raise an unkown duplicate
-				raise Record_Base.DuplicateException(e.args[0], e.args[1])
+				raise DuplicateException(e.args[0], e.args[1])
 
 			# Else there's an operational problem so close the connection and
 			#	restart
@@ -540,7 +511,7 @@ class Commands(object):
 				raise e
 
 	@classmethod
-	def insert(cls, host, sql, errcnt=0):
+	def insert(cls, host: str, sql: str, errcnt: int = 0) -> any:
 		"""Insert
 
 		Handles INSERT statements and returns the new ID. To insert records
@@ -551,8 +522,13 @@ class Commands(object):
 			sql (str): The SQL statement to run
 			errcnt (uint): DO NOT SET, used internally
 
+		Raises:
+			ConnectionError
+			DuplicateException
+			ValueError
+
 		Returns:
-			mixed
+			any
 		"""
 
 		# Print debug if requested
@@ -599,13 +575,13 @@ class Commands(object):
 				if oMatch:
 
 					# Raise a Duplicate Record Exception
-					raise Record_Base.DuplicateException(
+					raise DuplicateException(
 						oMatch.group(1),
 						oMatch.group(2)
 					)
 
 				# Else, raise an unkown duplicate
-				raise Record_Base.DuplicateException(e.args[0], e.args[1])
+				raise DuplicateException(e.args[0], e.args[1])
 
 			# Else there's an operational problem so close the connection and
 			#	restart
@@ -646,7 +622,13 @@ class Commands(object):
 				raise e
 
 	@classmethod
-	def select(cls, host, sql, seltype = ESelect.ALL, field = None, errcnt = 0):
+	def select(cls,
+		host: str,
+		sql: str,
+		seltype: ESelect = ESelect.ALL,
+		field: str | None = None,
+		errcnt: int = 0
+	) -> any:
 		"""Select
 
 		Handles SELECT queries and returns the data
@@ -659,8 +641,12 @@ class Commands(object):
 				ordereddict for associative rows
 			errcnt (uint): DO NOT SET, used internally
 
+		Raises
+			ConnectionError
+			ValueError
+
 		Returns:
-			mixed
+			any
 		"""
 
 		# Print debug if requested
@@ -812,16 +798,17 @@ class Record(Record_Base.Record):
 	"""
 
 	@classmethod
-	def _node_to_type(cls, node, host):
+	def _node_to_type(cls, node: Base, host: str) -> str:
 		"""Node To Type
 
 		Converts the Node type to a valid MySQL field type
 
 		Arguments:
-			node (Define.Node): The node we need an SQL type for
+			node (Define.Base): The node we need an SQL type for
 			host (str): The host in case we need to escape anything
 
 		Raises:
+			TypeError
 			ValueError
 
 		Returns:
@@ -842,7 +829,7 @@ class Record(Record_Base.Record):
 				raise ValueError('"any" nodes can not be used in Record_MySQL')
 
 			# If the type is a string
-			elif sType in ['base64', 'string']:
+			elif sType in [ 'base64', 'string' ]:
 
 				# If we have options
 				lOptions = node.options()
@@ -893,17 +880,22 @@ class Record(Record_Base.Record):
 			else:
 				raise ValueError('"%s" is not a known type to Record_MySQL')
 
-		# Else, if it's a Parent
-		elif sClass in ['Array', 'Hash', 'Parent']:
+		# Else, if it's an Array, Hash, or Parent
+		elif sClass in [ 'Array', 'Hash', 'Parent' ]:
 
 			# Get the sql section
 			dSQL = node.special('sql')
+
+			# If it's a parent and it's marked as a point
+			if 'type' in dSQL and dSQL['type'] == 'point' and \
+				sClass == 'Parent':
+				return 'point'
 
 			# If it doesn't exist, or there's no json flag
 			if not dSQL or 'json' not in dSQL or not dSQL['json']:
 				raise TypeError(
 					'Record_MySQL can not process Define %s nodes without ' \
-					'the json flag set' % sClass
+					'the json flag set, or the type set to "point"' % sClass
 				)
 
 			# Return the type as text so we can store the JSON
@@ -916,7 +908,7 @@ class Record(Record_Base.Record):
 			)
 
 	@classmethod
-	def add_changes(cls, _id, changes, custom = {}):
+	def add_changes(cls, _id: any, changes: dict, custom: dict = {}) -> bool:
 		"""Add Changes
 
 		Adds a record to the table's associated _changes table. Useful for \
@@ -924,11 +916,15 @@ class Record(Record_Base.Record):
 		tables that shouldn't be updated for every change in a single record
 
 		Arguments:
-			_id (mixed): The ID of the record the change is associated with
+			_id (any): The ID of the record the change is associated with
 			changes (dict): The dictionary of changes to add
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
+
+		Raises
+			RuntimeError
+			ValueError
 
 		Returns:
 			bool
@@ -939,7 +935,7 @@ class Record(Record_Base.Record):
 
 		# If the table doesn't want changes
 		if not dStruct['changes']:
-			raise Exception(
+			raise RuntimeError(
 				'%s doesn\'t allow for changes' % dStruct['tree']._name
 			)
 
@@ -953,7 +949,7 @@ class Record(Record_Base.Record):
 			# If any of the fields are missing
 			for k in dStruct['changes']:
 				if k not in changes:
-					raise Exception('"%s" missing from changes' % k)
+					raise ValueError('"%s" missing from changes' % k)
 
 		# Generate the INSERT statement
 		sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
@@ -976,15 +972,15 @@ class Record(Record_Base.Record):
 		return iRet and True or False
 
 	@classmethod
-	def append(cls, _id, array, item, custom = {}):
+	def append(cls, _id: any, array: str, item: any, custom: dict = {}) -> bool:
 		"""Append
 
 		Adds an item to a given array/list for a specific record
 
 		Arguments:
-			_id (mixed): The ID of the record to append to
+			_id (any): The ID of the record to append to
 			array (str): The name of the field with the array
-			item (mixed): The value to append to the array
+			item (any): The value to append to the array
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -992,7 +988,7 @@ class Record(Record_Base.Record):
 		Returns:
 			bool
 		"""
-		raise Exception('append method not available in Record_MySQL')
+		raise NotImplementedError('append method not available in Record_MySQL')
 
 	@classmethod
 	def config(cls):
@@ -1006,15 +1002,20 @@ class Record(Record_Base.Record):
 		raise NotImplementedError('Must implement the "config" method')
 
 	@classmethod
-	def contains(cls, _id, array, item, custom = {}):
+	def contains(cls,
+		_id: any,
+		array: str,
+		item: any,
+		custom: dict = {}
+	) -> bool:
 		"""Contains
 
 		Checks if a specific item exist inside a given array/list
 
 		Arguments:
-			_id (mixed): The ID of the record to check
+			_id (any): The ID of the record to check
 			array (str): The name of the field with the array
-			item (mixed): The value to check for in the array
+			item (any): The value to check for in the array
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -1022,23 +1023,29 @@ class Record(Record_Base.Record):
 		Returns:
 			bool
 		"""
-		raise Exception('contains method not available in Record_MySQL')
+		raise NotImplementedError(
+			'contains method not available in Record_MySQL'
+		)
 
 	@classmethod
-	def count(cls, _id = None, filter = None, custom = {}):
+	def count(cls,
+		_id: str | None = None,
+		filter: dict | None = None,
+		custom: dict = { }
+	) -> int:
 		"""Count
 
 		Returns the number of records associated with index or filter
 
 		Arguments:
-			_id (mixed): The ID(s) to check
+			_id (any): The ID(s) to check
 			filter (dict): Additional filter
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
 
 		Returns:
-			uint
+			unsigned int
 		"""
 
 		# Fetch the record structure
@@ -1083,7 +1090,10 @@ class Record(Record_Base.Record):
 		# Run the request and return the count
 		return Commands.select(dStruct['host'], sSQL, ESelect.CELL)
 
-	def create(self, conflict = 'error', changes = None):
+	def create(self,
+		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
+		changes: dict | None = None
+	) -> any:
 		"""Create
 
 		Adds the record to the DB and returns the primary key
@@ -1094,13 +1104,16 @@ class Record(Record_Base.Record):
 			changes (dict): Data needed to store a change record, is \
 				dependant on the 'changes' config value
 
+		Raises:
+			ValueError
+
 		Returns:
-			mixed|None
+			any
 		"""
 
 		# Make sure conflict arg is valid
-		if not isinstance(conflict, (tuple,list)) and \
-			conflict not in ('error', 'ignore', 'replace'):
+		if not isinstance(conflict, ( tuple, list )) and \
+			conflict not in ( 'error', 'ignore', 'replace' ):
 			raise ValueError('conflict', conflict)
 
 		# If the record requires revisions, make the first one
@@ -1259,12 +1272,14 @@ class Record(Record_Base.Record):
 		return mRet
 
 	@classmethod
-	def create_many(cls, records, conflict = 'error', custom = {}):
+	def create_many(cls,
+		records: List['Record'],
+		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
+		custom: dict = {}
+	) -> int:
 		"""Create Many
 
-		Inserts multiple records at once, returning all their primary keys \
-		if auto_primary is true, else just returning the number of records \
-		inserted (or replaced if replace is set to True)
+		Inserts multiple records at once, returning the number of created rows
 
 		Arguments:
 			records (Record_MySQL.Record[]): A list of Record instances to insert
@@ -1273,8 +1288,12 @@ class Record(Record_Base.Record):
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
 
+		Raises:
+			RuntimeError
+			ValueError
+
 		Returns:
-			bool
+			unsigned int
 		"""
 
 		# Make sure conflict arg is valid
@@ -1369,7 +1388,7 @@ class Record(Record_Base.Record):
 		# Returns rows inserted/changed
 		return iRes
 
-	def delete(self, changes = None):
+	def delete(self, changes: dict | None = None) -> bool:
 		"""Delete
 
 		Deletes the record represented by the instance
@@ -1377,6 +1396,10 @@ class Record(Record_Base.Record):
 		Arguments:
 			changes (dict): Data needed to store a change record, is \
 				dependant on the 'changes' config value
+
+		Raises:
+			KeyError
+			ValueError
 
 		Returns:
 			bool
@@ -1452,19 +1475,26 @@ class Record(Record_Base.Record):
 		return True
 
 	@classmethod
-	def delete_get(cls, _id=None, index = None, custom = {}):
+	def delete_get(cls,
+		_id: any | List[any] = None,
+		index: str | None = None,
+		custom: dict = {}
+	) -> int:
 		"""Delete Get
 
 		Deletes one or many records by primary key or index and returns how \
 		many were found/deleted
 
 		Arguments:
-			_id (mixed|mixed[]): The primary key(s) to delete or None for all \
+			_id (any|any[]): The primary key(s) to delete or None for all \
 				records
 			index (str): Used as the index instead of the primary key
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
+
+		Raises:
+			RuntimeError
 
 		Return:
 			int
@@ -1483,7 +1513,7 @@ class Record(Record_Base.Record):
 		# If there's no index and at least one ID passed
 		if not index and _id:
 			if not dStruct['primary']:
-				raise RecordException(
+				raise RuntimeError(
 					'Can not delete by primary key if none exists'
 				)
 			index = dStruct['primary']
@@ -1503,7 +1533,7 @@ class Record(Record_Base.Record):
 
 	# escape method
 	@classmethod
-	def escape(cls, host, node, value):
+	def escape(cls, host: str, node: Base, value: any) -> str:
 		"""Escape
 
 		Takes a value and turns it into an acceptable string for SQL
@@ -1511,7 +1541,11 @@ class Record(Record_Base.Record):
 		Args:
 			host (str): The name of the host if we need to call the server
 			node (Define.Base): The node associated with the data to escape
-			value (mixed): The value to escape
+			value (any): The value to escape
+
+		Raises:
+			TypeError
+			ValueError
 
 		Returns:
 			str
@@ -1580,6 +1614,25 @@ class Record(Record_Base.Record):
 				# Get the sql section
 				dSQL = node.special('sql')
 
+				# If it's a parent and it's marked as a point
+				if 'type' in dSQL and dSQL['type'] == 'point' and \
+					sClass == 'Parent':
+
+						# Check the value
+						try:
+							evaluate(value, [ 'lat', 'long' ])
+						except ValueError as e:
+							raise ValueError(
+								node.name(),
+								'must contain a "lat" and "long" value'
+							)
+
+						# Return it as an SQL POINT
+						return 'POINT(%s, %s)' % (
+							str(float(value['lat'])),
+							str(float(value['long']))
+						)
+
 				# If it doesn't exist, or there's no json flag
 				if not dSQL or 'json' not in dSQL or not dSQL['json']:
 					raise TypeError(
@@ -1597,14 +1650,16 @@ class Record(Record_Base.Record):
 				)
 
 	@classmethod
-	def exists(cls, _id, index = None, custom = {}):
+	def exists(cls,
+		_id: any, index: str | None = None, custom: dict = {}
+	) -> bool:
 		"""Exists
 
 		Returns the ID (primary key) of the record for the specified ID or \
 		unique index value found, else False if no record is found
 
 		Arguments:
-			_id (mixed): The primary key to check
+			_id (any): The primary key to check
 			index (str): Used as the index instead of the primary key
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
@@ -1641,7 +1696,7 @@ class Record(Record_Base.Record):
 		# If anything was returned, return the primary key
 		return dRecord[dStruct['primary']]
 
-	def field_set(self, field, val):
+	def field_set(self, field: str, val: any) -> 'Record':
 		"""Field Set
 
 		Overwrites Record_Base.Record.field_set to allow for setting Literals, \
@@ -1649,14 +1704,14 @@ class Record(Record_Base.Record):
 
 		Arguments:
 			field (str): The name of the field to set
-			val (mixed): The value to set the field to
-
-		Returns:
-			self for chaining
+			val (any): The value to set the field to
 
 		Raises:
 			KeyError: field doesn't exist in the structure of the record
 			ValueError: value is not valid for the field
+
+		Returns:
+			self for chaining
 		"""
 
 		# If the value is actually a literal, accept it as is
@@ -1681,13 +1736,13 @@ class Record(Record_Base.Record):
 	# filter static method
 	@classmethod
 	def filter(cls,
-		fields,
-		raw = None,
-		distinct = False,
-		orderby = None,
-		limit = None,
-		custom = {}
-	):
+		fields: dict,
+		raw: List[str] | PyLiteral[True] | None = None,
+		distinct: bool = False,
+		orderby: str | List[str] | List[List[str]] | None = None,
+		limit: int | tuple | None = None,
+		custom: dict = {}
+	) -> 'Record' | List['Record'] | dict | List[dict]:
 		"""Filter
 
 		Finds records based on the specific fields and values passed
@@ -1704,8 +1759,11 @@ class Record(Record_Base.Record):
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
 
+		Raises:
+			ValueError
+
 		Returns:
-			Record[]|dict[]
+			Record | Record[] | dict | dict[]
 		"""
 
 		# By default we will return multiple records
@@ -1715,10 +1773,12 @@ class Record(Record_Base.Record):
 		dStruct = cls.struct(custom)
 
 		# Generate the SELECT fields
-		if raw is None or raw is True:
-			sFields = '`%s`' % '`,`'.join(dStruct['tree'].keys())
-		else:
-			sFields = '`%s`' % '`,`'.join(raw)
+		sFields = cls.process_select(
+			dStruct['to_rename'],
+			(raw is None or raw is True) and \
+				dStruct['tree'].keys() or \
+				raw
+		)
 
 		# Go through each value
 		lWhere = []
@@ -1773,7 +1833,7 @@ class Record(Record_Base.Record):
 
 			# Else, invalid limit format
 			else:
-				raise Exception('Invalid limit passed to filter')
+				raise ValueError('limit', 'Invalid limit passed to filter')
 
 		# Build the statement
 		sSQL = 'SELECT %s%s FROM `%s`.`%s` ' \
@@ -1834,15 +1894,22 @@ class Record(Record_Base.Record):
 				return cls(dRecord, custom)
 
 	@classmethod
-	def generate_config(cls, tree, special = 'sql', override = None):
+	def generate_config(cls,
+		tree: Parent,
+		special: str = 'sql',
+		override: dict | None = None
+	) -> dict:
 		"""Generate Config
 
-		Generates record specific config based on the Define Tree passed
+		Generates record specific config based on the Define Parent passed
 
 		Arguments:
-			tree (Define.Tree): the tree associated with the record type
+			tree (Define.Parent): the tree associated with the record type
 			special (str): The special section used to identify the child info
 			override (dict): Used to override any data from the tree
+
+		Raises:
+			TypeError
 
 		Returns:
 			dict
@@ -1851,8 +1918,11 @@ class Record(Record_Base.Record):
 		# Get the based config from the parent
 		dConfig = super().generate_config(tree, special, override)
 
-		# Add an empty json section
-		dConfig['to_process'] = []
+		# Add an empty process section
+		dConfig['to_process'] = [ ]
+
+		# Add an empty rename section
+		dConfig['to_rename'] = { }
 
 		# Go through each node in the tree
 		for k in tree:
@@ -1870,6 +1940,12 @@ class Record(Record_Base.Record):
 					# Add it to the list
 					dConfig['to_process'].append([k, sType])
 
+				# Else, if it's a timestamp
+				elif sType == 'timestamp':
+
+					# Add it to the rename dict
+					dConfig['to_rename'][k] = 'timestamp'
+
 			# Else, if it's an object/dict type
 			elif sClass in ['Array', 'Hash', 'Parent']:
 
@@ -1877,8 +1953,33 @@ class Record(Record_Base.Record):
 				dSQL = tree[k].special('sql')
 				if dSQL:
 
-					# If it has the json flag
-					if 'json' in dSQL and dSQL['json']:
+					# If it's a parent and it's marked as a point
+					if 'type' in dSQL and dSQL['type'] == 'point' and \
+						sClass == 'Parent':
+
+						# If we don't have the necessary fields
+						if sorted(list(tree[k].keys())) != [ 'lat', 'long' ]:
+							raise TypeError(k,
+								'sql.point must contain only "lat" and ' \
+								'"long" keys'
+							)
+
+						# If the fields are invalid
+						if tree[k]['lat'].type() != 'decimal' or \
+							tree[k]['long'].type() != 'decimal':
+							raise TypeError(k,
+								'sql.point.lat and sql.point.long type ' \
+								'must be set to "decimal"'
+							)
+
+						# Add it to the process list
+						dConfig['to_process'].append([k, 'point'])
+
+						# Add it to the rename dict
+						dConfig['to_rename'][k] = 'point'
+
+					# Else, if it has the json flag
+					elif 'json' in dSQL and dSQL['json']:
 
 						# Add it to the list
 						dConfig['to_process'].append([k, 'json'])
@@ -1888,16 +1989,16 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def get(cls,
-		_id = None,
-		index = None,
-		filter = None,
-		match = None,
-		raw = None,
-		distinct = False,
-		orderby = None,
-		limit = None,
-		custom = {}
-	):
+		_id: any | List[any] | None = None,
+		index: None = None,
+		filter: dict | None = None,
+		match: None = None,
+		raw: List[str] | PyLiteral[True] | None = None,
+		distinct: bool = False,
+		orderby: str | List[str] | List[List[str]] | None = None,
+		limit: int | tuple | None = None,
+		custom: dict = {}
+	) -> 'Record' | List['Record'] | dict | List[dict] | None:
 		"""Get
 
 		Returns records by primary key or index, can also be given an extra \
@@ -1917,15 +2018,18 @@ class Record(Record_Base.Record):
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
 
+		Raises:
+			TypeError
+
 		Returns:
 			Record|Record[]|dict|dict[]
 		"""
 
 		# Don't allow index or match in MySQL
 		if index is not None:
-			raise Exception('index not a valid argument in Record_MySQL.get')
+			raise TypeError('index not a valid argument in Record_MySQL.get')
 		if match is not None:
-			raise Exception('match not a valid argument in Record_MySQL.get')
+			raise TypeError('match not a valid argument in Record_MySQL.get')
 
 		# By default we will return multiple records
 		bMulti = True
@@ -1934,10 +2038,12 @@ class Record(Record_Base.Record):
 		dStruct = cls.struct(custom)
 
 		# Generate the SELECT fields
-		if raw is None or raw is True:
-			sFields = '`%s`' % '`,`'.join(dStruct['tree'].keys())
-		else:
-			sFields = '`%s`' % '`,`'.join(raw)
+		sFields = cls.process_select(
+			dStruct['to_rename'],
+			(raw is None or raw is True) and \
+				dStruct['tree'].keys() or \
+				raw
+		)
 
 		# Init the where fields
 		lWhere = []
@@ -2068,25 +2174,26 @@ class Record(Record_Base.Record):
 				return cls(dRecord, custom)
 
 	@classmethod
-	def get_changes(cls, _id, orderby = None, custom = {}):
+	def get_changes(cls,
+		_id: any,
+		orderby: str | List[str] | List[List[str]] | None = None,
+		custom: dict = {}
+	) -> List[dict]:
 		"""Get Changes
 
 		Returns the changes record associated with the primary record and \
 		table. Used by Record types that have the 'changes' flag set.
 
 		Arguments:
-			_id (mixed): The of the primary record to fetch changes for
+			_id (any): The of the primary record to fetch changes for
 			orderby (str|str[]): A field or fields to order the results by
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
 
 		Returns:
-			dict
+			dict[]
 		"""
-
-		# By default we will return multiple records
-		bMulti = True
 
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
@@ -2138,7 +2245,7 @@ class Record(Record_Base.Record):
 		return lRecords
 
 	@classmethod
-	def process_record(cls, fields, record):
+	def process_record(cls, fields: List[List[str]], record: dict):
 		"""Process Record
 
 		Goes through a record and decodes any JSON or bool fields in place, \
@@ -2147,9 +2254,6 @@ class Record(Record_Base.Record):
 		Arguments:
 			fields (list): The list of fields that require decoding
 			record (dict): The record to process
-
-		Returns:
-			None
 		"""
 
 		# Go through each field
@@ -2162,12 +2266,63 @@ class Record(Record_Base.Record):
 				if l[1] == 'bool':
 					record[l[0]] = record[l[0]] and True or False
 
-				# If it's a json, decode it
+				# Else, if it's a json, decode it
 				elif l[1] == 'json':
 					record[l[0]] = jsonb.decode(record[l[0]])
 
+				# Else, if it's a point
+				elif l[1] == 'point':
+					oM = POINT_REGEX.match(record[l[0]])
+					record[l[0]] = {
+						'lat': oM.group(1),
+						'long': oM.group(2)
+					}
+
 	@classmethod
-	def process_value(cls, struct, field, value):
+	def process_select(cls, fields: dict, select: List[str]) -> List[str]:
+		"""Process Select
+
+		Goes through select fields and renames them based on their type so \
+		that we get the expected values
+
+		Arguments:
+			fields (dict): The field to type map
+			select (str[]): The list of select fields to convert
+
+		Returns:
+			str[]
+		"""
+
+		# Init the new list
+		lRet = [ ]
+
+		# If we have no renames
+		if fields == []:
+			return ', '.join([ '`%s`' % f for f in select ])
+
+		# Step through all the select fields
+		for f in select:
+
+			# If it's in the renames
+			if f in fields:
+
+				# If it's a point
+				if fields[f] == 'point':
+					lRet.append('ST_AsText(`%s`) as `%s`' % (f, f))
+
+				# Else, if it's a timestamp
+				elif fields[f] == 'timestamp':
+					lRet.append('UNIX_TIMESTAMP(`%s`) as `%s`' % (f, f))
+
+			# Else, add it as is
+			else:
+				lRet.append('`%s`' % f)
+
+		# Return the new list
+		return ', '.join(lRet)
+
+	@classmethod
+	def process_value(cls, struct: dict, field: str, value: any) -> str:
 		"""Process Value
 
 		Takes a field and a value or values and returns the proper SQL \
@@ -2176,7 +2331,7 @@ class Record(Record_Base.Record):
 		Args:
 			struct (dict): The structure associated with the record
 			field (str): The name of the field
-			value (mixed): The value as a single item, list, or dictionary
+			value (any): The value as a single item, list, or dictionary
 
 		Returns:
 			str
@@ -2192,8 +2347,10 @@ class Record(Record_Base.Record):
 			lValues = []
 			for i in value:
 				# If it's None
-				if i is None: lValues.append('NULL')
-				else: lValues.append(cls.escape(struct['host'], oNode, i))
+				if i is None:
+					lValues.append('NULL')
+				else:
+					lValues.append(cls.escape(struct['host'], oNode, i))
 			sRet = 'IN (%s)' % ','.join(lValues)
 
 		# Else if the value is a dictionary
@@ -2202,9 +2359,9 @@ class Record(Record_Base.Record):
 			# If it has a start and end
 			if 'between' in value:
 				sRet = 'BETWEEN %s AND %s' % (
-							cls.escape(struct['host'], oNode, value['between'][0]),
-							cls.escape(struct['host'], oNode, value['between'][1])
-						)
+					cls.escape(struct['host'], oNode, value['between'][0]),
+					cls.escape(struct['host'], oNode, value['between'][1])
+				)
 
 			# Else if we have a less than
 			elif 'lt' in value:
@@ -2232,21 +2389,34 @@ class Record(Record_Base.Record):
 					lValues = []
 					for i in value['neq']:
 						# If it's None
-						if i is None: lValues.append('NULL')
-						else: lValues.append(cls.escape(struct['host'], oNode, i))
+						if i is None:
+							lValues.append('NULL')
+						else:
+							lValues.append(
+								cls.escape(struct['host'], oNode, i)
+							)
 					sRet = 'NOT IN (%s)' % ','.join(lValues)
 
 				# Else, it must be a single value
 				else:
-					if value['neq'] is None: sRet = 'IS NOT NULL'
-					else: sRet = '!= ' + cls.escape(struct['host'], oNode, value['neq'])
+					if value['neq'] is None:
+						sRet = 'IS NOT NULL'
+					else:
+						sRet = '!= ' + cls.escape(
+							struct['host'], oNode, value['neq']
+						)
 
 			elif 'like' in value:
-				sRet = 'LIKE ' + cls.escape(struct['host'], oNode, value['like'])
+				sRet = 'LIKE ' + cls.escape(
+					struct['host'], oNode, value['like']
+				)
 
 			# No valid key in dictionary
 			else:
-				raise ValueError('key must be one of "between", "lt", "gt", "lte", "gte", or "neq"')
+				raise ValueError(
+					'key must be one of "between", "lt", "gt", "lte", "gte", ' \
+					'or "neq"'
+				)
 
 		# Else, it must be a single value
 		else:
@@ -2259,13 +2429,15 @@ class Record(Record_Base.Record):
 		return sRet
 
 	@classmethod
-	def remove(cls, _id, array, index, custom = {}):
+	def remove(cls,
+		_id: any, array: str, index: int, custom: dict = {}
+	) -> bool:
 		"""Remove
 
 		Removes an item from a given array/list for a specific record
 
 		Arguments:
-			_id (mixed): The ID of the record to remove from
+			_id (any): The ID of the record to remove from
 			array (str): The name of the field with the array
 			index (uint): The index of the array to remove
 			custom (dict): Custom Host and DB info
@@ -2275,9 +2447,9 @@ class Record(Record_Base.Record):
 		Returns:
 			bool
 		"""
-		raise Exception('remove method not available in Record_MySQL')
+		raise NotImplementedError('remove method not available in Record_MySQL')
 
-	def save(self, replace=False, changes = None):
+	def save(self, replace: bool = False, changes: dict = None) -> bool:
 		"""Save
 
 		Updates the record in the DB and returns true if anything has changed, \
@@ -2287,6 +2459,11 @@ class Record(Record_Base.Record):
 			replace (bool): If true, replace all fields instead of updating
 			changes (dict): Data needed to store a change record, is
 				dependant on the 'changes' config value
+
+		Raises:
+			KeyError
+			RevisionException
+			ValueError
 
 		Returns:
 			bool
@@ -2332,7 +2509,7 @@ class Record(Record_Base.Record):
 
 			# If it is found, but the revisions don't match up
 			if sRev != sRevCurr:
-				raise Record_Base.RevisionException(
+				raise RevisionException(
 					self._dRecord[self._dStruct['primary']]
 				)
 
@@ -2347,7 +2524,7 @@ class Record(Record_Base.Record):
 
 		# Else we are updating
 		else:
-			dValues = {k:self._dRecord[k] for k in self._dChanged}
+			dValues = { k:self._dRecord[k] for k in self._dChanged }
 
 		# Go through each value and create the pairs
 		lValues = []
@@ -2437,13 +2614,13 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def search(cls,
-		fields,
-		ids = None,
-		raw = None,
-		orderby = None,
-		limit = None,
-		custom = {}
-	):
+		fields: dict,
+		ids: List[str] | None = None,
+		raw: List[str] | PyLiteral[True] | None = None,
+		orderby: str | List[str] | List[List[str]] = None,
+		limit: int | tuple | None = None,
+		custom: dict = {}
+	) -> List['Record'] | List[dict]:
 		"""Search
 
 		Takes values and converts them to something usable by the filter method
@@ -2459,8 +2636,11 @@ class Record(Record_Base.Record):
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
 
+		Raises:
+			ValueError
+
 		Returns:
-			Record[]|dict[]
+			Record[] | dict[]
 		"""
 
 		# Init a new list of fields
@@ -2534,7 +2714,7 @@ class Record(Record_Base.Record):
 			)
 
 	@classmethod
-	def table_create(cls, custom = {}):
+	def table_create(cls, custom: dict = {}) -> bool:
 		"""Table Create
 
 		Creates the record's table/collection/etc in the DB
@@ -2543,6 +2723,9 @@ class Record(Record_Base.Record):
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
+
+		Raises:
+			ValueError
 
 		Returns:
 			bool
@@ -2572,11 +2755,8 @@ class Record(Record_Base.Record):
 		# If any are missing
 		if lMissing:
 			raise ValueError(
-				'Record_MySQL.table_create missing fields `%s` for `%s`.`%s`' % (
-					'`, `'.join(lMissing),
-					dStruct['db'],
-					dStruct['table']
-				)
+				'Record_MySQL.table_create missing fields `%s` for `%s`.`%s`' %
+				( '`, `'.join(lMissing), dStruct['db'], dStruct['table'] )
 			)
 
 		# Generate the list of fields
@@ -2727,7 +2907,7 @@ class Record(Record_Base.Record):
 		return True
 
 	@classmethod
-	def table_drop(cls, custom = {}):
+	def table_drop(cls, custom: dict = {}) -> bool:
 		"""Table Drop
 
 		Deletes the record's table/collection/etc in the DB
@@ -2769,7 +2949,14 @@ class Record(Record_Base.Record):
 		return True
 
 	@classmethod
-	def update_field(cls, field, value, _id=None, index = None, filter = None, custom = {}):
+	def update_field(cls,
+		field: str,
+		value: any,
+		_id: any | List[any] | None = None,
+		index: str | None = None,
+		filter: dict | None = None,
+		custom: dict = {}
+	) -> int:
 		"""Updated Field
 
 		Updates a specific field to the value for an ID, many IDs, or the \
@@ -2777,8 +2964,8 @@ class Record(Record_Base.Record):
 
 		Arguments:
 			field (str): The name of the field to update
-			value (mixed): The value to set the field to
-			_id (mixed): Optional ID(s) to filter by
+			value (any): The value to set the field to
+			_id (any): Optional ID(s) to filter by
 			index (str): Optional name of the index to use instead of primary
 			filter (dict): Optional filter list to decide what records get \
 				updated
@@ -2837,7 +3024,7 @@ class Record(Record_Base.Record):
 		return Commands.execute(dStruct['host'], sSQL)
 
 	@classmethod
-	def uuid(cls, custom = {}):
+	def uuid(cls, custom: dict = {}) -> str:
 		"""UUID
 
 		Returns a universal unique ID

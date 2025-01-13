@@ -5,7 +5,7 @@ with open('README.md', 'r') as oF:
 
 setup(
 	name='rest_mysql',
-	version='1.0.3',
+	version='1.1.0',
 	description='Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to newer librairies',
 	long_description=long_description,
 	long_description_content_type='text/markdown',
@@ -21,7 +21,7 @@ setup(
 	python_requires='>=3.10',
 	install_requires=[
 		'arrow>=1.3.0,<1.4',
-		'define-oc>=1.0.1,<1.1',
+		'define-oc>=1.0.3,<1.1',
 		'json-fix>=1.0.0,<1.1',
 		'jsonb>=1.0.0,<1.1',
 		'PyMySQL>=1.0.2,<1.1',
