@@ -11,7 +11,7 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2020-02-12"
 
 # Ouroboros imports
-from tools import clone
+from tools import clone, evaluate
 import jsonb
 
 # Python imports
@@ -46,6 +46,9 @@ RecordException = Record_Base.RecordException
 
 # Duplicate record regex
 DUP_ENTRY_REGEX = re.compile('Duplicate entry \'(.*?)\' for key \'(.*?)\'')
+
+# Point regex
+POINT_REGEX = re.compile('POINT\\((\\d+(?:.\\d+)?) (\\d+(?:.\\d+)?)\\)')
 
 ## ESelect
 class ESelect(IntEnum):
@@ -140,8 +143,7 @@ def _connection(host, errcnt = 0):
 		# Change conversions
 		conv = oCon.decoders.copy()
 		for k in conv:
-			if k in [7]: conv[k] = _converter_timestamp
-			elif k in [10,11,12]: conv[k] = str
+			if k in [10,11,12]: conv[k] = str
 		oCon.decoders = conv
 
 	# Check for errors
@@ -162,31 +164,6 @@ def _connection(host, errcnt = 0):
 	# Store the connection and return it
 	__mdConnections[host] = oCon
 	return oCon
-
-def _converter_timestamp(ts):
-	"""Converter Timestamp
-
-	Converts timestamps received from MySQL into proper integers
-
-	Args:
-		ts (str): The timestamp to convert
-
-	Returns:
-		uint
-	"""
-
-	# If there is no time
-	if ts == '0000-00-00 00:00:00':
-		return 0
-
-	# Replace ' ' with 'T', add milliseconds, and then timezone
-	ts = '%s.000000%s' % (
-		ts.replace(' ', 'T'),
-		__msTimestampTimezone
-	)
-
-	# Conver the string to a timestamp and return it
-	return arrow.get(ts).int_timestamp
 
 def _cursor(host, dictCur = False):
 	"""Cursor
@@ -899,11 +876,16 @@ class Record(Record_Base.Record):
 			# Get the sql section
 			dSQL = node.special('sql')
 
+			# If it's a parent and it's marked as a point
+			if 'type' in dSQL and dSQL['type'] == 'point' and \
+				sClass == 'Parent':
+				return 'point'
+
 			# If it doesn't exist, or there's no json flag
 			if not dSQL or 'json' not in dSQL or not dSQL['json']:
 				raise TypeError(
 					'Record_MySQL can not process Define %s nodes without ' \
-					'the json flag set' % sClass
+					'the json flag set, or the type set to "point"' % sClass
 				)
 
 			# Return the type as text so we can store the JSON
@@ -1580,6 +1562,25 @@ class Record(Record_Base.Record):
 				# Get the sql section
 				dSQL = node.special('sql')
 
+				# If it's a parent and it's marked as a point
+				if 'type' in dSQL and dSQL['type'] == 'point' and \
+					sClass == 'Parent':
+
+						# Check the value
+						try:
+							evaluate(value, [ 'lat', 'long' ])
+						except ValueError as e:
+							raise ValueError(
+								node.name(),
+								'must contain a "lat" and "long" value'
+							)
+
+						# Return it as an SQL POINT
+						return 'POINT(%s, %s)' % (
+							str(float(value['lat'])),
+							str(float(value['long']))
+						)
+
 				# If it doesn't exist, or there's no json flag
 				if not dSQL or 'json' not in dSQL or not dSQL['json']:
 					raise TypeError(
@@ -1715,10 +1716,12 @@ class Record(Record_Base.Record):
 		dStruct = cls.struct(custom)
 
 		# Generate the SELECT fields
-		if raw is None or raw is True:
-			sFields = '`%s`' % '`,`'.join(dStruct['tree'].keys())
-		else:
-			sFields = '`%s`' % '`,`'.join(raw)
+		sFields = cls.process_select(
+			dStruct['to_rename'],
+			(raw is None or raw is True) and \
+				dStruct['tree'].keys() or \
+				raw
+		)
 
 		# Go through each value
 		lWhere = []
@@ -1851,8 +1854,11 @@ class Record(Record_Base.Record):
 		# Get the based config from the parent
 		dConfig = super().generate_config(tree, special, override)
 
-		# Add an empty json section
-		dConfig['to_process'] = []
+		# Add an empty process section
+		dConfig['to_process'] = [ ]
+
+		# Add an empty rename section
+		dConfig['to_rename'] = { }
 
 		# Go through each node in the tree
 		for k in tree:
@@ -1870,6 +1876,12 @@ class Record(Record_Base.Record):
 					# Add it to the list
 					dConfig['to_process'].append([k, sType])
 
+				# Else, if it's a timestamp
+				elif sType == 'timestamp':
+
+					# Add it to the rename dict
+					dConfig['to_rename'][k] = 'timestamp'
+
 			# Else, if it's an object/dict type
 			elif sClass in ['Array', 'Hash', 'Parent']:
 
@@ -1877,8 +1889,33 @@ class Record(Record_Base.Record):
 				dSQL = tree[k].special('sql')
 				if dSQL:
 
-					# If it has the json flag
-					if 'json' in dSQL and dSQL['json']:
+					# If it's a parent and it's marked as a point
+					if 'type' in dSQL and dSQL['type'] == 'point' and \
+						sClass == 'Parent':
+
+						# If we don't have the necessary fields
+						if sorted(list(tree[k].keys())) != [ 'lat', 'long' ]:
+							raise TypeError(k,
+								'sql.point must contain only "lat" and ' \
+								'"long" keys'
+							)
+
+						# If the fields are invalid
+						if tree[k]['lat'].type() != 'decimal' or \
+							tree[k]['long'].type() != 'decimal':
+							raise TypeError(k,
+								'sql.point.lat and sql.point.long type ' \
+								'must be set to "decimal"'
+							)
+
+						# Add it to the process list
+						dConfig['to_process'].append([k, 'point'])
+
+						# Add it to the rename dict
+						dConfig['to_rename'][k] = 'point'
+
+					# Else, if it has the json flag
+					elif 'json' in dSQL and dSQL['json']:
 
 						# Add it to the list
 						dConfig['to_process'].append([k, 'json'])
@@ -1934,10 +1971,12 @@ class Record(Record_Base.Record):
 		dStruct = cls.struct(custom)
 
 		# Generate the SELECT fields
-		if raw is None or raw is True:
-			sFields = '`%s`' % '`,`'.join(dStruct['tree'].keys())
-		else:
-			sFields = '`%s`' % '`,`'.join(raw)
+		sFields = cls.process_select(
+			dStruct['to_rename'],
+			(raw is None or raw is True) and \
+				dStruct['tree'].keys() or \
+				raw
+		)
 
 		# Init the where fields
 		lWhere = []
@@ -2162,9 +2201,60 @@ class Record(Record_Base.Record):
 				if l[1] == 'bool':
 					record[l[0]] = record[l[0]] and True or False
 
-				# If it's a json, decode it
+				# Else, if it's a json, decode it
 				elif l[1] == 'json':
 					record[l[0]] = jsonb.decode(record[l[0]])
+
+				# Else, if it's a point
+				elif l[1] == 'point':
+					oM = POINT_REGEX.match(record[l[0]])
+					record[l[0]] = {
+						'lat': oM.group(1),
+						'long': oM.group(2)
+					}
+
+	@classmethod
+	def process_select(cls, fields, select):
+		"""Process Select
+
+		Goes through select fields and renames them based on their type so \
+		that we get the expected values
+
+		Arguments:
+			fields (str[][]): The list of fields to rename and their types
+			select (str[]): The list of select fields to request
+
+		Returns:
+			str[]
+		"""
+
+		# Init the new list
+		lRet = [ ]
+
+		# If we have no renames
+		if fields == []:
+			return ', '.join([ '`%s`' % f for f in select ])
+
+		# Step through all the select fields
+		for f in select:
+
+			# If it's in the renames
+			if f in fields:
+
+				# If it's a point
+				if fields[f] == 'point':
+					lRet.append('ST_AsText(`%s`) as `%s`' % (f, f))
+
+				# Else, if it's a timestamp
+				elif fields[f] == 'timestamp':
+					lRet.append('UNIX_TIMESTAMP(`%s`) as `%s`' % (f, f))
+
+			# Else, add it as is
+			else:
+				lRet.append('`%s`' % f)
+
+		# Return the new list
+		return ', '.join(lRet)
 
 	@classmethod
 	def process_value(cls, struct, field, value):
