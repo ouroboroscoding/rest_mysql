@@ -11,7 +11,7 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2020-02-12"
 
 # Ouroboros imports
-from define import BaseNode, Parent
+from define import Base, Parent
 from tools import clone, evaluate
 import jsonb
 
@@ -798,13 +798,13 @@ class Record(Record_Base.Record):
 	"""
 
 	@classmethod
-	def _node_to_type(cls, node: BaseNode, host: str) -> str:
+	def _node_to_type(cls, node: Base, host: str) -> str:
 		"""Node To Type
 
 		Converts the Node type to a valid MySQL field type
 
 		Arguments:
-			node (Define.BaseNode): The node we need an SQL type for
+			node (Define.Base): The node we need an SQL type for
 			host (str): The host in case we need to escape anything
 
 		Raises:
@@ -1093,7 +1093,7 @@ class Record(Record_Base.Record):
 	def create(self,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
 		changes: dict | None = None
-	) -> any | None:
+	) -> any:
 		"""Create
 
 		Adds the record to the DB and returns the primary key
@@ -1108,7 +1108,7 @@ class Record(Record_Base.Record):
 			ValueError
 
 		Returns:
-			any | None
+			any
 		"""
 
 		# Make sure conflict arg is valid
@@ -1533,14 +1533,14 @@ class Record(Record_Base.Record):
 
 	# escape method
 	@classmethod
-	def escape(cls, host: str, node: BaseNode, value: any) -> str:
+	def escape(cls, host: str, node: Base, value: any) -> str:
 		"""Escape
 
 		Takes a value and turns it into an acceptable string for SQL
 
 		Args:
 			host (str): The name of the host if we need to call the server
-			node (Define.BaseNode): The node associated with the data to escape
+			node (Define.Base): The node associated with the data to escape
 			value (any): The value to escape
 
 		Raises:
@@ -2245,7 +2245,7 @@ class Record(Record_Base.Record):
 		return lRecords
 
 	@classmethod
-	def process_record(cls, fields: List[List[str, str]], record: dict):
+	def process_record(cls, fields: List[List[str]], record: dict):
 		"""Process Record
 
 		Goes through a record and decodes any JSON or bool fields in place, \
@@ -2617,7 +2617,7 @@ class Record(Record_Base.Record):
 		fields: dict,
 		ids: List[str] | None = None,
 		raw: List[str] | PyLiteral[True] | None = None,
-		orderby: str | List[str] | List[List[str, str]] = None,
+		orderby: str | List[str] | List[List[str]] = None,
 		limit: int | tuple | None = None,
 		custom: dict = {}
 	) -> List['Record'] | List[dict]:
