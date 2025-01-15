@@ -17,6 +17,7 @@ import jsonb
 # Python imports
 import abc
 from hashlib import md5
+from typing import List, Literal
 
 # The global DB prefix
 __msPrepend = ''
@@ -837,6 +838,39 @@ class Record(abc.ABC):
 			dict
 		"""
 		raise NotImplementedError('Must implement the "get_changes" method')
+
+	@classmethod
+	def keys(cls, without: List[str] | Literal['_'] | None = None) -> List[str]:
+		"""Keys
+
+		Returns the keys of the fields available in the record
+
+		Arguments:
+			without (list), Optional, can be passed a list of list of keys to \
+				remove from the list before returning, or the '_' character \
+				to indicate removing all fields that start with an underscore
+
+		Returns:
+			str[]
+		"""
+
+		# Get the structure
+		dStruct = cls.struct()
+
+		# Get all the keys
+		lKeys = dStruct['tree'].keys()
+
+		# If we got no `without`
+		if without is None:
+			return lKeys
+
+		# If we got '_'
+		if without == '_':
+			return [ s for s in lKeys if s[0] != '_' ]
+
+		# If we got a list
+		if isinstance(without, list):
+			return [ s for s in lKeys if s not in without ]
 
 	def record(self, fields = False):
 		"""Record
