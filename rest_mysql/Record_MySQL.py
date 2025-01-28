@@ -139,7 +139,7 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 		oCon = pymysql.connect(**__mdHosts[host])
 
 		# Turn autocommit on
-		oCon.autocommit(True)
+		#oCon.autocommit(True)
 
 		# Change conversions
 		conv = oCon.decoders.copy()
@@ -166,17 +166,17 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 	__mdConnections[host] = oCon
 	return oCon
 
-def _cursor(host: str, dict_cur: bool = False) -> pymysql.cursors.Cursor:
+def _cursor(host: str, dict_cur: bool = False) -> list:
 	"""Cursor
 
-	Returns a cursor for the given host
+	Returns the connection and the cursor for the given host
 
-	Args:
+	Arguments:
 		host (str): The name of the host
 		dict_cur (bool): If true, cursor will use dicts
 
-	Return:
-		Cursor
+	Returns:
+		[ Connection, Cursor ]
 	"""
 
 	# Get a connection to the host
@@ -184,21 +184,27 @@ def _cursor(host: str, dict_cur: bool = False) -> pymysql.cursors.Cursor:
 
 	# Try to get a cursor on the connection
 	try:
+
+		# Start the transaction
+		oCon.begin()
+
 		if dict_cur:
 			oCursor = oCon.cursor(pymysql.cursors.DictCursor)
 		else:
 			oCursor = oCon.cursor()
 
-		# Make sure we're on UTF8
+		# Make sure we're on the requested charset
 		oCursor.execute('SET NAMES %s' % __mdHosts[host]['charset'])
 
-	except :
+	# If there's any exception whatsoever
+	except:
+
 		# Clear the connection and try again
 		_clear_connection(host)
 		return _cursor(host, dict_cur)
 
-	# Return the cursor
-	return oCursor
+	# Return the connection and cursor
+	return [ oCon, oCursor ]
 
 def _print_sql(type: str, host: str, sql: str):
 	"""Print SQL
@@ -219,21 +225,23 @@ def _print_sql(type: str, host: str, sql: str):
 	))
 
 class _wcursor(object):
-	"""_with
+	"""_wcursor
 
-	Used with the special Python with method to create a connection that will \
-	always be closed regardless of exceptions
+	Used with the special Python `with` method to create a connection that \
+	will always be closed regardless of exceptions
 	"""
 
-	def __init__(self, host, dict_cur = False):
-		self.cursor = _cursor(host, dict_cur)
+	def __init__(self, host: str, dict_cur: bool = False):
+		self.con, self.cursor = _cursor(host, dict_cur)
 
 	def __enter__(self):
 		return self.cursor
 
 	def __exit__(self, exc_type, exc_value, traceback):
 		self.cursor.close()
-		if exc_type is not None:
+		if exc_type is None:
+			self.con.commit()
+		else:
 			return False
 
 def add_host(name: str, info: dict, update: bool = False):
@@ -400,14 +408,15 @@ class Commands(object):
 		return sRet
 
 	@classmethod
-	def execute(cls, host: str, sql: str, errcnt: int = 0) -> int:
+	def execute(cls, host: str, sql: str | List[str], errcnt: int = 0) -> int:
 		"""Execute
 
-		Used to run SQL that doesn't return any rows
+		Used to run SQL that doesn't return any rows. Can be sent a single \
+		SQL statement (str), or multiple SQL statements run as a single commit
 
 		Args:
 			host (str): The name of the connection to execute on
-			sql (str|tuple): The SQL (or SQL plus a list) statement to run
+			sql (str|str[]): The SQL statement(s) to run
 			errcnt (unsigned int): DO NOT SET, used internally
 
 		Raises:
@@ -427,12 +436,16 @@ class Commands(object):
 
 			try:
 
-				# If the sql arg is a tuple we've been passed a string with a
-				#	list for the purposes of replacing parameters
-				if isinstance(sql, tuple):
-					iRet = oCursor.execute(sql[0], sql[1])
-				else:
-					iRet = oCursor.execute(sql)
+				# If we got a str
+				if isinstance(sql, str):
+					return oCursor.execute(sql)
+
+				# Init the return
+				iRet = 0
+
+				# Go through each statment and execute it
+				for s in sql:
+					iRet += oCursor.execute(s)
 
 				# Return the changed rows
 				return iRet
@@ -539,12 +552,8 @@ class Commands(object):
 
 			try:
 
-				# If the sql arg is a tuple we've been passed a string with a
-				#	list for the purposes of replacing parameters
-				if isinstance(sql, tuple):
-					oCursor.execute(sql[0], sql[1])
-				else:
-					oCursor.execute(sql)
+				# Execute the insert statement
+				oCursor.execute(sql)
 
 				# Get the ID
 				mInsertID = oCursor.lastrowid
@@ -660,12 +669,8 @@ class Commands(object):
 
 			try:
 
-				# If the sql arg is a tuple we've been passed a string with a
-				#	list for the purposes of replacing parameters
-				if isinstance(sql, tuple):
-					oCursor.execute(sql[0], sql[1])
-				else:
-					oCursor.execute(sql)
+				# Run the select statement
+				oCursor.execute(sql)
 
 				# If we want all rows
 				if seltype == ESelect.ALL:
@@ -1090,15 +1095,21 @@ class Record(Record_Base.Record):
 		# Run the request and return the count
 		return Commands.select(dStruct['host'], sSQL, ESelect.CELL)
 
-	def create(self,
+	@classmethod
+	def _create(cls,
+		record: dict,
+		struct: dict,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
 		changes: dict | None = None
 	) -> any:
-		"""Create
+		"""Create (base)
 
-		Adds the record to the DB and returns the primary key
+		Does the actual generation of the SQL and inserts the record into the
+		DB. self.create and cls.create_now use this
 
 		Arguments:
+			record (dict): The raw data to enter into the DB
+			struct (dict): The structure to use to generate the SQL
 			conflict (str|list): Must be one of 'error', 'ignore', 'replace', \
 				or a list of fields to update
 			changes (dict): Data needed to store a change record, is \
@@ -1117,35 +1128,35 @@ class Record(Record_Base.Record):
 			raise ValueError('conflict', conflict)
 
 		# If the record requires revisions, make the first one
-		if self._dStruct['revisions']:
-			self._revision(True)
+		if struct['revisions']:
+			cls._revision_init(record, struct)
 
 		# Create the string of all fields and values but the primary if it's
 		#	auto incremented
 		lTemp = [[], []]
-		for f in self._dStruct['tree'].keys():
+		for f in struct['tree'].keys():
 
 			# If it's the primary key with auto_primary on and the value isn't
 			#	passed
-			if f == self._dStruct['primary'] and \
-				self._dStruct['auto_primary'] and \
-				f not in self._dRecord:
+			if f == struct['primary'] and \
+				struct['auto_primary'] and \
+				f not in record:
 
 				# If it's a string, add the field and set the value to the
 				#	SQL variable
-				if isinstance(self._dStruct['auto_primary'], str):
+				if isinstance(struct['auto_primary'], str):
 
 					# Add the field and set the value to the SQL variable
 					lTemp[0].append('`%s`' % f)
 					lTemp[1].append('@_AUTO_PRIMARY')
 
-			elif f in self._dRecord:
+			elif f in record:
 				lTemp[0].append('`%s`' % f)
-				if self._dRecord[f] != None:
-					lTemp[1].append(self.escape(
-						self._dStruct['host'],
-						self._dStruct['tree'][f],
-						self._dRecord[f]
+				if record[f] != None:
+					lTemp[1].append(cls.escape(
+						struct['host'],
+						struct['tree'][f],
+						record[f]
 					))
 				else:
 					lTemp[1].append('NULL')
@@ -1179,57 +1190,54 @@ class Record(Record_Base.Record):
 				' VALUES (%s)\n' \
 				'%s' % (
 					(conflict == 'ignore' and 'IGNORE ' or ''),
-					self._dStruct['db'],
-					self._dStruct['table'],
+					struct['db'],
+					struct['table'],
 					sFields,
 					sValues,
 					sUpdate
 				)
 
 		# If the primary key is auto generated
-		if self._dStruct['auto_primary']:
+		if struct['auto_primary']:
 
 			# If it's a string
-			if isinstance(self._dStruct['auto_primary'], str):
+			if isinstance(struct['auto_primary'], str):
 
 				# Set the SQL variable to the requested value
 				Commands.execute(
-					self._dStruct['host'],
-					'SET @_AUTO_PRIMARY = %s' % self._dStruct['auto_primary']
+					struct['host'],
+					'SET @_AUTO_PRIMARY = %s' % struct['auto_primary']
 				)
 
 				# Execute the regular SQL
-				Commands.execute(self._dStruct['host'], sSQL)
+				Commands.execute(struct['host'], sSQL)
 
 				# Fetch the SQL variable
-				self._dRecord[self._dStruct['primary']] = Commands.select(
-					self._dStruct['host'],
+				record[struct['primary']] = Commands.select(
+					struct['host'],
 					'SELECT @_AUTO_PRIMARY',
 					ESelect.CELL
 				)
 
 			# Else, assume auto_increment
 			else:
-				self._dRecord[self._dStruct['primary']] = Commands.insert(
-					self._dStruct['host'],
+				record[struct['primary']] = Commands.insert(
+					struct['host'],
 					sSQL
 				)
 
 			# Get the return from the primary key
-			mRet = self._dRecord[self._dStruct['primary']]
+			mRet = record[struct['primary']]
 
 		# Else, the primary key was passed, we don't need to fetch it
 		else:
-			if not Commands.execute(self._dStruct['host'], sSQL):
+			if not Commands.execute(struct['host'], sSQL):
 				mRet = None
 			else:
 				mRet = True
 
-		# Clear changed fields
-		self._dChanged = {}
-
 		# If changes are required and the record was saved
-		if mRet is not None and self._dStruct['changes']:
+		if mRet is not None and struct['changes']:
 
 			# Create the changes record
 			dChanges = {
@@ -1238,38 +1246,68 @@ class Record(Record_Base.Record):
 			}
 
 			# If Changes requires fields
-			if isinstance(self._dStruct['changes'], list):
+			if isinstance(struct['changes'], list):
 
 				# If they weren't passed
 				if not isinstance(changes, dict):
 					raise ValueError('changes')
 
 				# Else, add the extra fields
-				for k in self._dStruct['changes']:
+				for k in struct['changes']:
 					dChanges[k] = changes[k]
 
 			# Generate the INSERT statement
 			sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
 					'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
-						self._dStruct['db'],
-						self._dStruct['table'],
-						self._dStruct['primary'],
-						self.escape(
-							self._dStruct['host'],
-							self._dStruct['tree'][self._dStruct['primary']],
-							self._dRecord[self._dStruct['primary']]
+						struct['db'],
+						struct['table'],
+						struct['primary'],
+						cls.escape(
+							struct['host'],
+							struct['tree'][struct['primary']],
+							record[struct['primary']]
 						),
 						Commands.escape(
-							self._dStruct['host'],
+							struct['host'],
 							jsonb.encode(dChanges)
 						)
 					)
 
 			# Create the changes record
-			Commands.execute(self._dStruct['host'], sSQL)
+			Commands.execute(struct['host'], sSQL)
 
 		# Return
 		return mRet
+
+	def create(self,
+		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
+		changes: dict | None = None
+	) -> any:
+		"""Create
+
+		Adds the record to the DB and returns the primary key
+
+		Arguments:
+			conflict (str|list): Must be one of 'error', 'ignore', 'replace', \
+				or a list of fields to update
+			changes (dict): Data needed to store a change record, is \
+				dependant on the 'changes' config value
+
+		Raises:
+			ValueError
+
+		Returns:
+			any
+		"""
+
+		# Call the base create and store the result
+		mRes = self._create(self._dRecord, self._dStruct, conflict, changes)
+
+		# Clear changed fields
+		self._dChanged = {}
+
+		# Return the result
+		return mRes
 
 	@classmethod
 	def create_many(cls,
@@ -1387,6 +1425,37 @@ class Record(Record_Base.Record):
 
 		# Returns rows inserted/changed
 		return iRes
+
+	@classmethod
+	def create_now(cls,
+		record: dict,
+		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
+		changes: dict | None = None,
+		custom: dict = {}
+	) -> any:
+		"""Create Now
+
+		Creates a new record without creating the instance. Useful for records
+		we don't need to validate because the system is making them
+
+		Arguments:
+			record (dict): The raw record data
+			conflict (str): Must be one of 'error', 'ignore', 'replace'
+			changes (dict): Data needed to store a change record, is \
+				dependant on the 'changes' config value
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			any
+		"""
+
+		# Get the struct
+		dStruct = cls.struct(custom)
+
+		# Call the base create and return the result
+		return cls._create(record, dStruct, conflict, changes)
 
 	def delete(self, changes: dict | None = None) -> bool:
 		"""Delete
@@ -2484,7 +2553,7 @@ class Record(Record_Base.Record):
 			sRevCurr = self._dRecord[self._dStruct['rev_field']]
 
 			# If updating the revision fails
-			if not self._revision():
+			if not self._revision_update(self._dStruct):
 				return False
 
 			# Use the primary key to fetch the record and return the rev

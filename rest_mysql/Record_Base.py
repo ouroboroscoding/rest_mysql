@@ -224,62 +224,64 @@ class Record(abc.ABC):
 		"""
 		return str(self._dRecord)
 
-	def _revision(self, struct, init=False):
-		"""Revision
+	@classmethod
+	def _revision_init(cls, record: dict, struct: dict):
+		"""Revision Init
 
-		Internal method for setting revision values
+		Adds the initial revision to the record
 
 		Arguments:
+			record (dict): The record to be inserted
+			struct (dict): The structure of the record
+		"""
+
+		# Remove the _rev value so we don't include it in the MD5
+		if struct['rev_field'] in record:
+			del record[struct['rev_field']]
+
+		# Generate and set the revision
+		record[struct['rev_field']] = '1-%s' % \
+			md5(jsonb.encode(record)).hexdigest()
+
+	def _revision_update(self, struct: dict) -> bool:
+		"""Revision Update
+
+		Updates an existing revision
+
+		Arguments:
+			record (dict): The record to add / update the revision
 			struct (dict): The structure for the record
-			init (bool): True to set a new value
 
 		Returns:
 			bool
 		"""
 
-		# If we are generating a new value
-		if init:
+		# Remove and store the existing revision
+		sRev = self._dRecord[struct['rev_field']]
+		del self._dRecord[struct['rev_field']]
 
-			# Remove the _rev value so we don't include it in the MD5
-			if struct['rev_field'] in self._dRecord:
-				del self._dRecord[struct['rev_field']]
+		# Split it into version and hash
+		sVer, sHash = sRev.split('-')
 
-			# Generate and set the revision
-			self._dRecord[struct['rev_field']] = '1-%s' % \
-				md5(jsonb.encode(self._dRecord)).hexdigest()
+		# Generate a new hash from the record data
+		sMD5 = md5(jsonb.encode(self._dRecord)).hexdigest()
+
+		# If the old and new hash don't match
+		if sMD5 != sHash:
+
+			# Update the revision
+			self._dRecord[struct['rev_field']] = '%d-%s' % \
+				(int(sVer)+1, sMD5)
+
+			# Flag the revision field as changed
+			if self._dChanged != True:
+				self._dChanged[struct['rev_field']] = True
 
 			# Return OK
 			return True
 
-		# Else if we are updating the existing revision
-		else:
-
-			# Remove and store the existing revision
-			sRev = self._dRecord[struct['rev_field']]
-			del self._dRecord[struct['rev_field']]
-
-			# Split it into version and hash
-			sVer, sHash = sRev.split('-')
-
-			# Generate a new hash from the record data
-			sMD5 = md5(jsonb.encode(self._dRecord)).hexdigest()
-
-			# If the old and new hash don't match
-			if sMD5 != sHash:
-
-				# Update the revision
-				self._dRecord[struct['rev_field']] = '%d-%s' % \
-					(int(sVer)+1, sMD5)
-
-				# Flag the revision field as changed
-				if self._dChanged != True:
-					self._dChanged[struct['rev_field']] = True
-
-				# Return OK
-				return True
-
-			# The record hasn't actually changed
-			return False
+		# The record hasn't actually changed
+		return False
 
 	@classmethod
 	@abc.abstractmethod
