@@ -238,11 +238,17 @@ class _wcursor(object):
 		return self.cursor
 
 	def __exit__(self, exc_type, exc_value, traceback):
-		self.cursor.close()
-		if exc_type is None:
-			self.con.commit()
+
+		# Rollback on failure
+		if exc_type:
+			self.con.rollback()
+
+		# Commit on successful exit
 		else:
-			return False
+			self.con.commit()
+
+		# Close the cursor
+		self.cursor.close()
 
 def add_host(name: str, info: dict, update: bool = False):
 	"""Add Host
