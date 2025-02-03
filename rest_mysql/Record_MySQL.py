@@ -48,7 +48,7 @@ RevisionException = Record_Base.RevisionException
 DUP_ENTRY_REGEX = re.compile('Duplicate entry \'(.*?)\' for key \'(.*?)\'')
 
 # Point regex
-POINT_REGEX = re.compile('POINT\\((\\d+(?:.\\d+)?) (\\d+(?:.\\d+)?)\\)')
+POINT_REGEX = re.compile('POINT\\((\-?\\d+(?:.\\d+)?) (\-?\\d+(?:.\\d+)?)\\)')
 
 ## ESelect
 class ESelect(IntEnum):
