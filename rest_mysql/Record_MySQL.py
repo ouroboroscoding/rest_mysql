@@ -437,16 +437,18 @@ class Commands(object):
 		# Print debug if requested
 		if cls._verbose: _print_sql('EXECUTE', host, sql)
 
-		# Fetch a cursor
-		with _wcursor(host) as oCursor:
+		# Catch exceptions
+		try:
 
-			try:
+			# Fetch a cursor
+			with _wcursor(host) as oCursor:
 
 				# If we got a str
 				if isinstance(sql, str):
+					s = sql
 					return oCursor.execute(sql)
 
-				# Init the return
+				# Init return
 				iRet = 0
 
 				# Go through each statment and execute it
@@ -456,78 +458,78 @@ class Commands(object):
 				# Return the changed rows
 				return iRet
 
-			# If the SQL is bad
-			except (pymysql.err.ProgrammingError, pymysql.err.InternalError) as e:
+		# If the SQL is bad
+		except (pymysql.err.ProgrammingError, pymysql.err.InternalError) as e:
 
-				# Raise an SQL Exception
+			# Raise an SQL Exception
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(s)
+				)
+			)
+
+		# Else, a duplicate key error
+		except pymysql.err.IntegrityError as e:
+
+			# Pull out the value and the index name
+			oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+
+			# If we got a match
+			if oMatch:
+
+				# Raise a Duplicate Record Exception
+				raise DuplicateException(
+					oMatch.group(1),
+					oMatch.group(2)
+				)
+
+			# Else, raise an unkown duplicate
+			raise DuplicateException(e.args[0], e.args[1])
+
+		# Else there's an operational problem so close the connection and
+		#	restart
+		except pymysql.err.OperationalError as e:
+			print('----------------------------------------')
+			print('OPERATIONAL ERROR')
+			print(e.args)
+			print('')
+
+			# If the error code is one that won't change
+			if e.args[0] in [1051, 1054, 1136, 1359]:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
 						str(e.args[0]),
 						str(e.args[1]),
-						str(sql)
+						str(s)
 					)
 				)
 
-			# Else, a duplicate key error
-			except pymysql.err.IntegrityError as e:
+			# Increment the error count
+			errcnt += 1
 
-				# Pull out the value and the index name
-				oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+			# If we've hit our max errors, raise an exception
+			if errcnt == MAX_RETRIES:
+				raise ConnectionError(*e.args)
 
-				# If we got a match
-				if oMatch:
+			# Clear the connection and try again
+			_clear_connection(host)
+			return cls.execute(host, sql, errcnt)
 
-					# Raise a Duplicate Record Exception
-					raise DuplicateException(
-						oMatch.group(1),
-						oMatch.group(2)
-					)
+		# Else, catch any Exception
+		except Exception as e:
+			print('\n----------------------------------------')
+			print('Unknown Error in Record_MySQL.Commands.execute')
+			print('host = ' + host)
+			print('sql = ' + str(s))
+			print('exception = ' + str(e.__class__.__name__))
+			print('args = ' + ', '.join([str(s) for s in e.args]))
 
-				# Else, raise an unkown duplicate
-				raise DuplicateException(e.args[0], e.args[1])
-
-			# Else there's an operational problem so close the connection and
-			#	restart
-			except pymysql.err.OperationalError as e:
-				print('----------------------------------------')
-				print('OPERATIONAL ERROR')
-				print(e.args)
-				print('')
-
-				# If the error code is one that won't change
-				if e.args[0] in [1051, 1054, 1136]:
-					raise ValueError(
-						e.args[0],
-						'SQL error (%s): %s\n%s' % (
-							str(e.args[0]),
-							str(e.args[1]),
-							str(sql)
-						)
-					)
-
-				# Increment the error count
-				errcnt += 1
-
-				# If we've hit our max errors, raise an exception
-				if errcnt == MAX_RETRIES:
-					raise ConnectionError(*e.args)
-
-				# Clear the connection and try again
-				_clear_connection(host)
-				return cls.execute(host, sql, errcnt)
-
-			# Else, catch any Exception
-			except Exception as e:
-				print('\n----------------------------------------')
-				print('Unknown Error in Record_MySQL.Commands.execute')
-				print('host = ' + host)
-				print('sql = ' + str(sql))
-				print('exception = ' + str(e.__class__.__name__))
-				print('args = ' + ', '.join([str(s) for s in e.args]))
-
-				# Rethrow
-				raise e
+			# Rethrow
+			raise e
 
 	@classmethod
 	def insert(cls, host: str, sql: str, errcnt: int = 0) -> any:
@@ -553,10 +555,11 @@ class Commands(object):
 		# Print debug if requested
 		if cls._verbose: _print_sql('INSERT', host, sql)
 
-		# Fetch a cursor
-		with _wcursor(host) as oCursor:
+		# Handle exceptions
+		try:
 
-			try:
+			# Fetch a cursor
+			with _wcursor(host) as oCursor:
 
 				# Execute the insert statement
 				oCursor.execute(sql)
@@ -567,10 +570,43 @@ class Commands(object):
 				# Return the last inserted ID
 				return mInsertID
 
-			# If the SQL is bad
-			except pymysql.err.ProgrammingError as e:
+		# If the SQL is bad
+		except pymysql.err.ProgrammingError as e:
 
-				# Raise an SQL Exception
+			# Raise an SQL Exception
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(sql)
+				)
+			)
+
+		# Else, a duplicate key error
+		except pymysql.err.IntegrityError as e:
+
+			# Pull out the value and the index name
+			oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+
+			# If we got a match
+			if oMatch:
+
+				# Raise a Duplicate Record Exception
+				raise DuplicateException(
+					oMatch.group(1),
+					oMatch.group(2)
+				)
+
+			# Else, raise an unkown duplicate
+			raise DuplicateException(e.args[0], e.args[1])
+
+		# Else there's an operational problem so close the connection and
+		#	restart
+		except pymysql.err.OperationalError as e:
+
+			# If the error code is one that won't change
+			if e.args[0] in [1054]:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
@@ -580,61 +616,28 @@ class Commands(object):
 					)
 				)
 
-			# Else, a duplicate key error
-			except pymysql.err.IntegrityError as e:
+			# Increment the error count
+			errcnt += 1
 
-				# Pull out the value and the index name
-				oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+			# If we've hit our max errors, raise an exception
+			if errcnt == MAX_RETRIES:
+				raise ConnectionError(*e.args)
 
-				# If we got a match
-				if oMatch:
+			# Clear the connection and try again
+			_clear_connection(host)
+			return cls.insert(host, sql, errcnt)
 
-					# Raise a Duplicate Record Exception
-					raise DuplicateException(
-						oMatch.group(1),
-						oMatch.group(2)
-					)
+		# Else, catch any Exception
+		except Exception as e:
+			print('\n----------------------------------------')
+			print('Unknown Error in Record_MySQL.Commands.insert')
+			print('host = ' + host)
+			print('sql = ' + str(sql))
+			print('exception = ' + str(e.__class__.__name__))
+			print('args = ' + ', '.join([str(s) for s in e.args]))
 
-				# Else, raise an unkown duplicate
-				raise DuplicateException(e.args[0], e.args[1])
-
-			# Else there's an operational problem so close the connection and
-			#	restart
-			except pymysql.err.OperationalError as e:
-
-				# If the error code is one that won't change
-				if e.args[0] in [1054]:
-					raise ValueError(
-						e.args[0],
-						'SQL error (%s): %s\n%s' % (
-							str(e.args[0]),
-							str(e.args[1]),
-							str(sql)
-						)
-					)
-
-				# Increment the error count
-				errcnt += 1
-
-				# If we've hit our max errors, raise an exception
-				if errcnt == MAX_RETRIES:
-					raise ConnectionError(*e.args)
-
-				# Clear the connection and try again
-				_clear_connection(host)
-				return cls.insert(host, sql, errcnt)
-
-			# Else, catch any Exception
-			except Exception as e:
-				print('\n----------------------------------------')
-				print('Unknown Error in Record_MySQL.Commands.insert')
-				print('host = ' + host)
-				print('sql = ' + str(sql))
-				print('exception = ' + str(e.__class__.__name__))
-				print('args = ' + ', '.join([str(s) for s in e.args]))
-
-				# Rethrow
-				raise e
+			# Rethrow
+			raise e
 
 	@classmethod
 	def select(cls,
@@ -670,10 +673,11 @@ class Commands(object):
 		# Get a cursor
 		bDictCursor = seltype in (ESelect.ALL, ESelect.HASH_ROWS, ESelect.ROW)
 
-		# Fetch a cursor
-		with _wcursor(host, bDictCursor) as oCursor:
+		# Handle exceptions
+		try:
 
-			try:
+			# Fetch a cursor
+			with _wcursor(host, bDictCursor) as oCursor:
 
 				# Run the select statement
 				oCursor.execute(sql)
@@ -726,10 +730,25 @@ class Commands(object):
 				# Return the results
 				return mData
 
-			# If the SQL is bad
-			except pymysql.err.ProgrammingError as e:
+		# If the SQL is bad
+		except pymysql.err.ProgrammingError as e:
 
-				# Raise an SQL Exception
+			# Raise an SQL Exception
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(sql)
+				)
+			)
+
+		# Else there's an operational problem so close the connection and
+		#	restart
+		except pymysql.err.OperationalError as e:
+
+			# If the error code is one that won't change
+			if e.args[0] in [1054]:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
@@ -739,43 +758,28 @@ class Commands(object):
 					)
 				)
 
-			# Else there's an operational problem so close the connection and
-			#	restart
-			except pymysql.err.OperationalError as e:
+			# Increment the error count
+			errcnt += 1
 
-				# If the error code is one that won't change
-				if e.args[0] in [1054]:
-					raise ValueError(
-						e.args[0],
-						'SQL error (%s): %s\n%s' % (
-							str(e.args[0]),
-							str(e.args[1]),
-							str(sql)
-						)
-					)
+			# If we've hit our max errors, raise an exception
+			if errcnt == MAX_RETRIES:
+				raise ConnectionError(*e.args)
 
-				# Increment the error count
-				errcnt += 1
+			# Clear the connection and try again
+			_clear_connection(host)
+			return cls.select(host, sql, seltype, field, errcnt)
 
-				# If we've hit our max errors, raise an exception
-				if errcnt == MAX_RETRIES:
-					raise ConnectionError(*e.args)
+		# Else, catch any Exception
+		except Exception as e:
+			print('\n----------------------------------------')
+			print('Unknown Error in Record_MySQL.Commands.select')
+			print('host = ' + host)
+			print('sql = ' + str(sql))
+			print('exception = ' + str(e.__class__.__name__))
+			print('args = ' + ', '.join([str(s) for s in e.args]))
 
-				# Clear the connection and try again
-				_clear_connection(host)
-				return cls.select(host, sql, seltype, field, errcnt)
-
-			# Else, catch any Exception
-			except Exception as e:
-				print('\n----------------------------------------')
-				print('Unknown Error in Record_MySQL.Commands.select')
-				print('host = ' + host)
-				print('sql = ' + str(sql))
-				print('exception = ' + str(e.__class__.__name__))
-				print('args = ' + ', '.join([str(s) for s in e.args]))
-
-				# Rethrow
-				raise e
+			# Rethrow
+			raise e
 
 class Record(Record_Base.Record):
 	"""Record
@@ -789,13 +793,13 @@ class Record(Record_Base.Record):
 		'bool': 'tinyint(1) unsigned',
 		'date': 'date',
 		'datetime': 'datetime',
-		'decimal': 'decimal',
+		'decimal': False,
 		'float': 'double',
 		'int': 'integer',
 		'ip': 'char(15)',
 		'json': 'text',
 		'md5': 'char(32)',
-		'price': 'decimal(8,2)',
+		'price': False,
 		'string': False,
 		'time': 'time',
 		'timestamp': 'timestamp',
@@ -882,6 +886,38 @@ class Record(Record_Base.Record):
 							return 'text'
 						else:
 							return 'varchar(%d)' % dMinMax['maximum']
+
+			# Else, if the type is a decimal
+			elif sType == 'decimal':
+
+				# Decimals require __sql__.type set so that we know the exact
+				#	length of the field
+				raise ValueError(
+					'"decimal" requires __sql__.type set in Record_MySQL, ' \
+					'e.g. ' \
+					'decimal(8,2) // 100,000.00 ' \
+					'decimal(5,4) // 3.1415'
+				)
+
+			# Else, if the type is a price
+			elif sType == 'price':
+
+				# Get min/max values
+				dMinMax = node.minmax()
+
+				# If we have don't have a maximum
+				if dMinMax['maximum'] is None:
+					raise ValueError(
+						'"price" nodes must have a __maximum__ value if ' \
+						'__sql__.type is not set in Record_MySQL'
+					)
+
+				# Split the maximum into whole and fration
+				l = str(dMinMax['maximum']).split('.')
+
+				# Generate the type from the length of the maximum + 2, for the
+				#	cents
+				return 'decimal(%i,2)' % (len(l[0]) + 2)
 
 			# Else, get the default
 			elif sType in cls.__nodeToSQL:
@@ -2811,7 +2847,7 @@ class Record(Record_Base.Record):
 
 		# If the 'create' value is missing
 		if 'create' not in dStruct:
-			raise ValueError(
+			raise ValueError(dStruct['table'],
 				'Record_MySQL.table_create requires \'create\' in config. ' \
 				'i.e. ["_id", "field1", "field2", "etc"]'
 			)
@@ -2829,7 +2865,7 @@ class Record(Record_Base.Record):
 
 		# If any are missing
 		if lMissing:
-			raise ValueError(
+			raise ValueError(dStruct['table'],
 				'Record_MySQL.table_create missing fields `%s` for `%s`.`%s`' %
 				( '`, `'.join(lMissing), dStruct['db'], dStruct['table'] )
 			)
@@ -2899,7 +2935,7 @@ class Record(Record_Base.Record):
 
 			# Make sure it's a dict
 			if not isinstance(dStruct['indexes'], dict):
-				raise ValueError(
+				raise ValueError(dStruct['table'],
 					'Record_MySQL.table_create requires \'indexes\' to be a ' \
 					'dict'
 				)
@@ -2940,43 +2976,44 @@ class Record(Record_Base.Record):
 				))
 
 		# Generate the CREATE statement
-		sSQL = 'CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) '\
-				'ENGINE=%s CHARSET=%s COLLATE=%s' % (
-					dStruct['db'],
-					dStruct['table'],
-					', '.join(lFields),
-					', '.join(lIndexes),
-					'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-					'charset' in dStruct and dStruct['charset'] or 'utf8',
-					'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
-				)
-
-		# Create the table
-		Commands.execute(dStruct['host'], sSQL)
+		lSQL = [
+			'CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) '\
+			'ENGINE=%s CHARSET=%s COLLATE=%s' % (
+				dStruct['db'],
+				dStruct['table'],
+				', '.join(lFields),
+				', '.join(lIndexes),
+				'engine' in dStruct and dStruct['engine'] or 'InnoDB',
+				'charset' in dStruct and dStruct['charset'] or 'utf8',
+				'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+			)
+		]
 
 		# If changes are required
 		if dStruct['primary'] and dStruct['changes']:
 
 			# Generate the CREATE statement
-			sSQL = 'CREATE TABLE IF NOT EXISTS `%s`.`%s_changes` (' \
-					'`%s` %s not null %s, ' \
-					'`created` datetime not null DEFAULT CURRENT_TIMESTAMP, ' \
-					'`items` text not null, ' \
-					'index `%s` (`%s`)) ' \
-					'ENGINE=%s CHARSET=%s COLLATE=%s' % (
-				dStruct['db'],
-				dStruct['table'],
-				dStruct['primary'],
-				sIDType,
-				sIDOpts,
-				dStruct['primary'], dStruct['primary'],
-				'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-				'charset' in dStruct and dStruct['charset'] or 'utf8',
-				'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+			lSQL.append(
+				'CREATE TABLE IF NOT EXISTS `%s`.`%s_changes` (' \
+				'`%s` %s not null %s, ' \
+				'`created` datetime not null DEFAULT CURRENT_TIMESTAMP, ' \
+				'`items` text not null, ' \
+				'index `%s` (`%s`)) ' \
+				'ENGINE=%s CHARSET=%s COLLATE=%s' % (
+					dStruct['db'],
+					dStruct['table'],
+					dStruct['primary'],
+					sIDType,
+					sIDOpts,
+					dStruct['primary'], dStruct['primary'],
+					'engine' in dStruct and dStruct['engine'] or 'InnoDB',
+					'charset' in dStruct and dStruct['charset'] or 'utf8',
+					'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+				)
 			)
 
-			# Create the table
-			Commands.execute(dStruct['host'], sSQL)
+		# Create the table(s) and triggers
+		Commands.execute(dStruct['host'], lSQL)
 
 		# Return OK
 		return True
@@ -3019,6 +3056,251 @@ class Record(Record_Base.Record):
 
 			# Delete the table
 			Commands.execute(dStruct['host'], sSQL)
+
+		# Return OK
+		return True
+
+	@classmethod
+	def _triggers_validate(cls, struct):
+		"""Triggers Validate
+
+		Validates and cleans up the trigger data
+
+		Arguments:
+			struct (dict): The classes' struct data to use
+
+		Returns:
+			None
+		"""
+
+		# If we have no triggers
+		if 'triggers' not in struct or not struct['triggers']:
+			raise ValueError(struct['table'], 'No triggers found')
+
+		# Make sure it's a list
+		if not isinstance(struct['triggers'], list):
+			raise ValueError(struct['table'],
+				'"triggers" must be a list of dicts'
+			)
+
+		# Step through each trigger
+		for i, d in enumerate(struct['triggers']):
+
+			# Make sure it's a dict
+			if not isinstance(d, dict):
+				raise ValueError(struct['table'],
+					'"triggers" must be a list of dicts'
+				)
+
+			# Make sure all data is there
+			try: evaluate(d, [ 'event', 'sql', 'time' ])
+			except ValueError as e:
+				raise ValueError(struct['table'],
+					[ 'triggers.%i.%s' % (i, f) for f in e.args ],
+					'missing'
+				)
+
+			# If the event is wrong
+			if d['event'].upper() not in [ 'DELETE', 'INSERT', 'UPDATE' ]:
+				raise ValueError(struct['table'],
+					'triggers.%i.event invalid' % i
+				)
+
+			# If the time is wrong
+			if d['time'].upper() not in [ 'AFTER', 'BEFORE' ]:
+				raise ValueError(struct['table'],
+					'triggers.%i.time invalid' % i
+				)
+
+			# If the sql is not a string
+			if not isinstance(d['sql'], str):
+
+				# Is it a list?
+				if isinstance(d['sql'], list):
+					d['sql'] = '\n'.join(d['sql'])
+
+				# Else, it's an error
+				else:
+					raise ValueError(struct['table'],
+						'triggers.%i.sql invalid' % i
+					)
+
+	@classmethod
+	def triggers_create(cls, return_sql = False, custom = {}):
+		"""Triggers Create
+
+		Creates the triggers associated with the record's table/collection/etc \
+		in the DB. If `return_sql` is set to a struct, that struct is used to \
+		generate the SQL and return it instead of being executed. This is for \
+		the triggers_reinstall method
+
+		Arguments:
+			return_sql (False | struct): Optional, set to a struct to use that \
+				struct to generate the SQL
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			bool
+		"""
+
+		# Init generated SQL statements
+		lSQL = []
+
+		# If we have no struct
+		if not return_sql:
+
+			# Get the structure
+			dStruct = cls.struct(custom)
+
+			# Validate the data
+			cls._triggers_validate(dStruct)
+
+		# Else, use the struct passed
+		else:
+			dStruct = return_sql
+
+		# Go through the triggers
+		for d in dStruct['triggers']:
+
+			# Generate the SQL
+			lSQL.append(
+				'CREATE TRIGGER `%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`\n' \
+				'%(timeu)s %(eventu)s ON `%(db)s`.`%(table)s`\n' \
+				'%(sql)s;' % {
+					'db': dStruct['db'],
+					'table': dStruct['table'],
+					'name': ('name' in d and ('_%s' % d['name']) or ''),
+					'time': d['time'],
+					'timeu': d['time'].upper(),
+					'event': d['event'],
+					'eventu': d['event'].upper(),
+					'sql': d['sql'] % dStruct
+				}
+			)
+
+		# If we want to return so we can join this with _drop for _reinstall
+		if return_sql:
+			return lSQL
+
+		# If we have any triggers to install
+		if lSQL:
+			try:
+				Commands.execute(dStruct['host'], lSQL)
+			except ValueError as e:
+				if e.args[0] == 1359:
+					pass
+				else:
+					raise e
+
+		# Return OK
+		return True
+
+	@classmethod
+	def triggers_drop(cls, return_sql = False, custom = {}):
+		"""Triggers Drop
+
+		Drops the triggers associated with the record's table/collection/etc \
+		in the DB. If `return_sql` is set to a struct, that struct is used to \
+		generate the SQL and return it instead of being executed. This is for \
+		the triggers_reinstall method
+
+		Arguments:
+			return_sql (False | struct): Optional, set to a struct to use that \
+				struct to generate the SQL
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			bool
+		"""
+
+		# Init generated SQL statements
+		lSQL = []
+
+		# If we have no struct
+		if not return_sql:
+
+			# Get the structure
+			dStruct = cls.struct(custom)
+
+			# Validate the data
+			cls._triggers_validate(dStruct)
+
+		# Else, use the struct passed
+		else:
+			dStruct = return_sql
+
+		# Go through the triggers
+		for d in dStruct['triggers']:
+
+			# Generate the SQL
+			lSQL.append(
+				'DROP TRIGGER IF EXISTS `%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`'
+				% {
+					'db': dStruct['db'],
+					'table': dStruct['table'],
+					'name': ('name' in d and ('_%s' % d['name']) or ''),
+					'time': d['time'],
+					'event': d['event']
+				}
+			)
+
+		# If we want to return so we can join this with _create for _reinstall
+		if return_sql:
+			return lSQL
+
+		# If we have any triggers to drop
+		if lSQL:
+			Commands.execute(dStruct['host'], lSQL)
+
+		# Return OK
+		return True
+
+	@classmethod
+	def triggers_recreate(cls, custom = {}):
+		"""Triggers Re-Create
+
+		Drops the triggers associated with the record's table/collection/etc \
+		in the DB, then creates them again. Locks the table so no rows get in \
+		while this is happening
+
+		Arguments:
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			bool
+		"""
+
+		# Get the struct
+		dStruct = cls.struct(custom)
+
+		# Validate the data
+		cls._triggers_validate(dStruct)
+
+		# Init the SQL by locking the table
+		lSQL = [ 'LOCK TABLES `%(db)s`.`%(table)s` WRITE' % dStruct ]
+
+		# Call the _drop method to generate the DROP TRIGGER
+		lSQL.extend(
+			cls.triggers_drop(return_sql = dStruct)
+		)
+
+		# Call the _create method to generate the CREATE TRIGGER
+		lSQL.extend(
+			cls.triggers_create(return_sql = dStruct)
+		)
+
+		# Unlock the table
+		lSQL.append('UNLOCK TABLES')
+
+		# If there's anything (LOCK / UNLOCK statements don't count), execute it
+		if len(lSQL) > 2:
+			Commands.execute(dStruct['host'], lSQL)
 
 		# Return OK
 		return True
