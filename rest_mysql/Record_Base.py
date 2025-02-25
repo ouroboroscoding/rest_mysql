@@ -285,7 +285,7 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def add_changes(cls, _id, changes, customer={}):
+	def add_changes(cls, key, changes, customer={}):
 		"""Add Changes
 
 		Adds a record to the tables associated _changes table. Useful for \
@@ -293,7 +293,7 @@ class Record(abc.ABC):
 		tables that shouldn't be updated for every change in a single record
 
 		Arguments:
-			_id (mixed): The ID of the record the change is associated with
+			key (mixed): The ID of the record the change is associated with
 			changes (dict): The dictionary of changes to add
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
@@ -306,13 +306,13 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def append(cls, _id, array, item, custom = {}):
+	def append(cls, key, array, item, custom = {}):
 		"""Append
 
 		Adds an item to a given array/list for a specific record
 
 		Arguments:
-			_id (mixed): The ID of the record to append to
+			key (mixed): The ID of the record to append to
 			array (str): The name of the field with the array
 			item (mixed): The value to append to the array
 			custom (dict): Custom Host and DB info
@@ -365,13 +365,13 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def contains(cls, _id, array, item, custom = {}):
+	def contains(cls, key, array, item, custom = {}):
 		"""Contains
 
 		Checks if a specific item exist inside a given array/list
 
 		Arguments:
-			_id (mixed): The ID of the record to check
+			key (mixed): The ID of the record to check
 			array (str): The name of the field with the array
 			item (mixed): The value to check for in the array
 			custom (dict): Custom Host and DB info
@@ -385,13 +385,13 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def count(cls, _id, index = None, filter=None, custom = {}):
+	def count(cls, key, index = None, filter=None, custom = {}):
 		"""Count
 
 		Returns the number of records associated with index or filter
 
 		Arguments:
-			_ids (mixed): The ID to check
+			keys (mixed): The ID to check
 			index (str): Used as the index instead of the primary key
 			filter (dict): Additional filter
 			custom (dict): Custom Host and DB info
@@ -455,14 +455,14 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def delete_get(cls, _id, index = None, custom = {}):
+	def delete_get(cls, key, index = None, custom = {}):
 		"""Delete Get
 
 		Deletes one or many records by ID or index and returns how many were \
 		found/deleted
 
 		Arguments:
-			_id (mixed|mixed[]): The ID(s) to delete or None for all records
+			key (mixed|mixed[]): The ID(s) to delete or None for all records
 			index (str): Used as the index instead of the primary key
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
@@ -475,14 +475,14 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def exists(cls, _id, index = None, custom = {}):
+	def exists(cls, key, index = None, custom = {}):
 		"""Exists
 
 		Returns the ID (primary key) of the record for the specified ID or \
 		unique index value found, else False if no record is found
 
 		Arguments:
-			_id (mixed): The ID to check
+			key (mixed): The ID to check
 			index (str): Used as the index instead of the primary key
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
@@ -559,8 +559,7 @@ class Record(abc.ABC):
 			val (mixed): The value to set the field to
 
 		Raises:
-			KeyError: field doesn't exist in the structure of the record
-			ValueError: value is not valid for the field
+			ValueError: field or value is invalid
 
 		Returns:
 			self for chaining
@@ -568,14 +567,19 @@ class Record(abc.ABC):
 
 		# If the field is not valid for the record
 		if field not in self._dStruct['tree']:
-			raise KeyError(field)
+			raise ValueError([
+				[ '%s.%s' % (self._dStruct['tree'], field), 'unknown' ]
+			])
 
 		# If the field hasn't changed
 		if field in self._dRecord and val == self._dRecord[field]:
 			return self
 
 		# If the value isn't valid for the field
-		if not self._dStruct['tree'][field].valid(val, level = [ field ]):
+		if not self._dStruct['tree'][field].valid(
+			val,
+			level = [ self._dStruct['tree'].name, field ]
+		):
 			raise ValueError(self._dStruct['tree'][field].validation_failures)
 
 		# If we need to keep changes
@@ -595,6 +599,60 @@ class Record(abc.ABC):
 
 		# Allow chaining
 		return self
+
+	def fields_set(self, fields: dict):
+		"""Fields Set
+
+		Sets numerous fields in a record
+
+		Arguments:
+			fields (dict): The field / value pairs to set
+
+		Raises:
+			ValueError: field(s) or value(s) are invalid
+		"""
+
+		# Init errors
+		lErrors = []
+
+		# Step through the fields
+		for f,v in fields.items():
+
+			# If the field is not valid for the record
+			if f not in self._dStruct['tree']:
+				lErrors.append(
+					[ '%s.%s' % (self._dStruct['tree'], f), 'unknown' ]
+				)
+
+			# If the field hasn't changed, loop around
+			if f in self._dRecord and v == self._dRecord[f]:
+				continue
+
+			# If the value isn't valid for the f
+			if not self._dStruct['tree'][f].valid(
+				v, level = [ self._dStruct['tree'].name, f ]
+			):
+				lErrors.extend(self._dStruct['tree'][f].validation_failures)
+				continue
+
+			# If we need to keep changes
+			if self._dStruct['changes']:
+				if self._dOldRecord is None:
+					self._dOldRecord = clone(self._dRecord)
+
+			# If the value is not None, store it after cleaning it
+			if v is not None:
+				self._dRecord[f] = self._dStruct['tree'][f].clean(v)
+			else:
+				self._dRecord[f] = None
+
+			# If we still have a dict for changes (not a total replace)
+			if isinstance(self._dChanged, dict):
+				self._dChanged[f] = True
+
+		# If there's any errors
+		if lErrors:
+			raise ValueError(lErrors)
 
 	@classmethod
 	@abc.abstractmethod
@@ -788,7 +846,7 @@ class Record(abc.ABC):
 	@classmethod
 	@abc.abstractmethod
 	def get(cls,
-		_id = None,
+		key = None,
 		index = None,
 		filter = None,
 		match = None,
@@ -803,7 +861,7 @@ class Record(abc.ABC):
 		Returns records by ID or index, can also be given an extra filter
 
 		Arguments:
-			_id (mixed|mixed[]): The ID(s) to fetch from the table
+			key (mixed|mixed[]): The ID(s) to fetch from the table
 			index (str): Index to use instead of primary key
 			filter (dict): Additional filter
 			match (tuple): Name/Match filter
@@ -823,14 +881,14 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def get_changes(cls, _id, orderby = None, custom = {}):
+	def get_changes(cls, key, orderby = None, custom = {}):
 		"""Get Changes
 
 		Returns the changes record associated with the primary record and \
 		table. Used by Record types that have the 'changes' flag set.
 
 		Arguments:
-			_id (mixed): The of the primary record to fetch changes for
+			key (mixed): The of the primary record to fetch changes for
 			orderby (str|str[]): A field or fields to order the results by
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
@@ -900,13 +958,13 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
-	def remove(cls, _id, array, index, custom = {}):
+	def remove(cls, key, array, index, custom = {}):
 		"""Remove
 
 		Removes an item from a given array/list for a specific record
 
 		Arguments:
-			_id (mixed): The ID of the record to remove from
+			key (mixed): The ID of the record to remove from
 			array (str): The name of the field with the array
 			index (uint): The index of the array to remove
 			custom (dict): Custom Host and DB info
@@ -1018,7 +1076,7 @@ class Record(abc.ABC):
 	def update_field(cls,
 		field,
 		value,
-		_id = None,
+		key = None,
 		index = None,
 		filter = None
 	):
@@ -1030,7 +1088,7 @@ class Record(abc.ABC):
 		Arguments:
 			field (str): The name of the field to update
 			value (mixed): The value to set the field to
-			_id (mixed): Optional ID(s) to filter by
+			key (mixed): Optional ID(s) to filter by
 			index (str): Optional name of the index to use instead of primary
 			filter (dict): Optional filter list to decide what records get \
 				updated
