@@ -21,11 +21,11 @@ setup(
 	python_requires='>=3.10',
 	install_requires=[
 		'arrow>=1.3.0,<1.4',
-		'define-oc>=1.0.3,<1.1',
+		'define-oc>=1.0.4,<1.1',
 		'json-fix>=1.0.0,<1.1',
 		'jsonb>=1.0.0,<1.1',
 		'PyMySQL>=1.0.2,<1.1',
-		'tools-oc>=1.2.4,<1.3'
+		'tools-oc>=1.2.5,<1.3'
 	],
 	zip_safe=True
 )

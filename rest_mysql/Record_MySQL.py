@@ -20,7 +20,7 @@ from enum import IntEnum
 import re
 import sys
 from time import sleep
-from typing import List, Literal as PyLiteral
+from typing import Dict, List, Literal as PyLiteral
 
 # Pip imports
 import arrow
@@ -1093,7 +1093,7 @@ class Record(Record_Base.Record):
 	@classmethod
 	def count(cls,
 		key: str | None = None,
-		filter: dict | None = None,
+		filter: dict | List[dict] | None = None,
 		custom: dict = { }
 	) -> int:
 		"""Count
@@ -1102,7 +1102,7 @@ class Record(Record_Base.Record):
 
 		Arguments:
 			key (any): The ID(s) to check
-			filter (dict): Additional filter
+			filter (dict|dict[]): Additional filter(s)
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -1140,14 +1140,25 @@ class Record(Record_Base.Record):
 		# If we want to filter the data further
 		if filter:
 
-			# Go through each value
-			for n,v in filter.items():
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
 
-				# Generate theSQL and append it to the list
-				lWhere.append('`%s` %s' % (
-					n,
-					cls.process_value(dStruct, n, v)
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
 				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Build the statement
 		sSQL = 'SELECT COUNT(*) FROM `%s`.`%s` ' \
@@ -1734,13 +1745,25 @@ class Record(Record_Base.Record):
 		# If there's an additional filter
 		if filter:
 
-			# Go through each value
-			for s, m in filter.items():
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
 
-				# Generate theSQL and append it to the list
-				lWhere.append(
-					'`%s` %s' % (s, cls.process_value(dStruct, s, m))
-				)
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
+				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Build the delete statement
 		sSQL = 'DELETE FROM `%s`.`%s` %s' % (
@@ -1994,7 +2017,7 @@ class Record(Record_Base.Record):
 	@classmethod
 	def filter(cls,
 		fields: dict,
-		raw: List[str] | PyLiteral[True] | None = None,
+		raw: str | List[str] | PyLiteral[True] | None = None,
 		distinct: bool = False,
 		orderby: str | List[str] | List[List[str]] | None = None,
 		limit: int | tuple | None = None,
@@ -2007,8 +2030,10 @@ class Record(Record_Base.Record):
 		Arguments:
 			fields (dict): A dictionary of field names to the values they \
 				should match
-			raw (bool|list): Return raw data (dict) for all or a set list of \
-				fields
+			raw (bool|str|list): Optional, default returns a list of Records, \
+				set to True to return a list of dicts, pass a list to return \
+				a list of dicts with only the fields provided, or pass a \
+				single string to return a list of just those values
 			distinct (bool): Only return distinct data
 			orderby (str|str[]): A field or fields to order the results by
 			limit (int|tuple): The limit and possible starting point
@@ -2024,7 +2049,10 @@ class Record(Record_Base.Record):
 		"""
 
 		# By default we will return multiple records
-		bMulti = True
+		bMultiRecords = True
+
+		# Are we returning dicts/Records, or a column?
+		bMultiFields = not isinstance(raw, str)
 
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
@@ -2034,17 +2062,31 @@ class Record(Record_Base.Record):
 			dStruct['to_rename'],
 			(raw is None or raw is True) and \
 				dStruct['tree'].keys() or \
-				raw
+				(bMultiFields and raw or [ raw ])
 		)
 
 		# Go through each value
 		lWhere = []
-		for n,v in fields.items():
 
-			# Generate theSQL and append it to the list
-			lWhere.append(
-				'`%s` %s' % (n, cls.process_value(dStruct, n, v))
-			)
+		# If we only have one
+		if isinstance(fields, dict):
+			lWhere.append(' AND '.join([
+				'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+				for n,v in fields.items()
+			]))
+
+		# If we have multiple
+		elif isinstance(fields, list):
+			lWhere.append('(%s)' % ') OR ('.join(
+				[ ' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in d.items()
+				]) for d in fields ]
+			))
+
+		# Else, invalid fields
+		else:
+			raise ValueError('fields', 'must be a dict or dict[]')
 
 		# If the order isn't set
 		if orderby is None:
@@ -2080,13 +2122,13 @@ class Record(Record_Base.Record):
 			if isinstance(limit, int):
 				sLimit = 'LIMIT %d' % limit
 				if limit == 1:
-					bMulti = False
+					bMultiRecords = False
 
 			# If we got a tuple/list
 			elif isinstance(limit, (list,tuple)):
 				sLimit = 'LIMIT %d, %d' % (limit[0], limit[1])
 				if limit[1] == 1:
-					bMulti = False
+					bMultiRecords = False
 
 			# Else, invalid limit format
 			else:
@@ -2106,19 +2148,29 @@ class Record(Record_Base.Record):
 				)
 
 		# If we only want multiple records
-		if bMulti:
+		if bMultiRecords:
 
 			# Get all the records
-			lRecords = Commands.select(dStruct['host'], sSQL, ESelect.ALL)
+			lRecords = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ALL or ESelect.COLUMN
+			)
 
 			# If there's no data, return an empty list
 			if not lRecords:
 				return []
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				for d in lRecords:
-					cls.process_record(dStruct['to_process'], d)
+				if bMultiFields:
+					for d in lRecords:
+						cls.process_record(dStruct['to_process'], d)
+				elif raw in dStruct['to_process']:
+					for i, m in enumerate(lRecords):
+						lRecords[i] = cls.process_field(
+							dStruct['to_process'][raw], m
+						)
 
 			# If Raw requested, return as is
 			if raw:
@@ -2131,16 +2183,25 @@ class Record(Record_Base.Record):
 		# Else, we want one record
 		else:
 
-			# Get one row
-			dRecord = Commands.select(dStruct['host'], sSQL, ESelect.ROW)
+			# Get one row or cell
+			dRecord = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ROW or ESelect.CELL
+			)
 
 			# If there's no data, return None
 			if not dRecord:
 				return None
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				cls.process_record(dStruct['to_process'], dRecord)
+				if bMultiFields:
+					cls.process_record(dStruct['to_process'], dRecord)
+				elif raw in dStruct['to_process']:
+					dRecord = cls.process_field(
+						dStruct['to_process'][raw], dRecord
+					)
 
 			# If Raw requested, return as is
 			if raw:
@@ -2176,7 +2237,7 @@ class Record(Record_Base.Record):
 		dConfig = super().generate_config(tree, special, override)
 
 		# Add an empty process section
-		dConfig['to_process'] = [ ]
+		dConfig['to_process'] = { }
 
 		# Add an empty rename section
 		dConfig['to_rename'] = { }
@@ -2203,7 +2264,7 @@ class Record(Record_Base.Record):
 
 		# Else, just make sure we have the primary
 		else:
-			if dConfig['primary'] not in tree:
+			if dConfig['primary'] and dConfig['primary'] not in tree:
 				raise ValueError(
 					'primary', 'primary key field doe not exist in the tree'
 				)
@@ -2222,7 +2283,7 @@ class Record(Record_Base.Record):
 				if sType in ['json', 'bool']:
 
 					# Add it to the list
-					dConfig['to_process'].append([k, sType])
+					dConfig['to_process'][k] = sType
 
 				# Else, if it's a timestamp
 				elif sType == 'timestamp':
@@ -2257,7 +2318,7 @@ class Record(Record_Base.Record):
 							)
 
 						# Add it to the process list
-						dConfig['to_process'].append([k, 'point'])
+						dConfig['to_process'][k] = 'point'
 
 						# Add it to the rename dict
 						dConfig['to_rename'][k] = 'point'
@@ -2266,7 +2327,7 @@ class Record(Record_Base.Record):
 					elif 'json' in dSQL and dSQL['json']:
 
 						# Add it to the list
-						dConfig['to_process'].append([k, 'json'])
+						dConfig['to_process'][k] = 'json'
 
 		# Return the final config
 		return dConfig
@@ -2277,7 +2338,7 @@ class Record(Record_Base.Record):
 		index: None = None,
 		filter: dict | None = None,
 		match: None = None,
-		raw: List[str] | PyLiteral[True] | None = None,
+		raw: str | List[str] | PyLiteral[True] | None = None,
 		distinct: bool = False,
 		orderby: str | List[str] | List[List[str]] | None = None,
 		limit: int | tuple | None = None,
@@ -2293,8 +2354,10 @@ class Record(Record_Base.Record):
 			index (str): N/A in MySQL
 			filter (dict): Additional filter
 			match (tuple): N/A in MySQL
-			raw (bool|list): Return raw data (dict) for all or a set list of \
-				fields
+			raw (bool|str|list): Optional, default returns a list of Records, \
+				set to True to return a list of dicts, pass a list to return \
+				a list of dicts with only the fields provided, or pass a \
+				single string to return a list of just those values
 			distinct (bool): Only return distinct data
 			orderby (str|str[]): A field or fields to order the results by
 			limit (int|tuple): The limit and possible starting point
@@ -2316,7 +2379,10 @@ class Record(Record_Base.Record):
 			raise TypeError('match not a valid argument in Record_MySQL.get')
 
 		# By default we will return multiple records
-		bMulti = True
+		bMultiRecords = True
+
+		# Are we returning dicts/Records, or a column?
+		bMultiFields = not isinstance(raw, str)
 
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
@@ -2326,7 +2392,7 @@ class Record(Record_Base.Record):
 			dStruct['to_rename'],
 			(raw is None or raw is True) and \
 				dStruct['tree'].keys() or \
-				raw
+				(bMultiFields and raw or [ raw ])
 		)
 
 		# Init the where fields
@@ -2351,18 +2417,30 @@ class Record(Record_Base.Record):
 			# Check if the key is a single value
 			if not isinstance(key, (dict,list,tuple)) or \
 				isinstance(key, str):
-				bMulti = False
+				bMultiRecords = False
 
 		# If there's an additional filter
 		if filter:
 
-			# Go through each value
-			for n,v in filter.items():
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
 
-				# Generate theSQL and append it to the list
-				lWhere.append(
-					'`%s` %s' % (n, cls.process_value(dStruct, n, v))
-				)
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
+				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# If the order isn't set
 		if orderby is None:
@@ -2398,13 +2476,13 @@ class Record(Record_Base.Record):
 			if isinstance(limit, int):
 				sLimit = 'LIMIT %d' % limit
 				if limit == 1:
-					bMulti = False
+					bMultiRecords = False
 
 			# If we got a tuple/list
 			elif isinstance(limit, (list,tuple)):
 				sLimit = 'LIMIT %d, %d' % (limit[0], limit[1])
 				if limit[1] == 1:
-					bMulti = False
+					bMultiRecords = False
 
 		# Build the statement
 		sSQL = 'SELECT %s%s FROM `%s`.`%s` ' \
@@ -2420,19 +2498,29 @@ class Record(Record_Base.Record):
 				)
 
 		# If we only want multiple records
-		if bMulti:
+		if bMultiRecords:
 
 			# Get all the records
-			lRecords = Commands.select(dStruct['host'], sSQL, ESelect.ALL)
+			lRecords = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ALL or ESelect.COLUMN
+			)
 
 			# If there's no data, return an empty list
 			if not lRecords:
 				return []
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				for d in lRecords:
-					cls.process_record(dStruct['to_process'], d)
+				if bMultiFields:
+					for d in lRecords:
+						cls.process_record(dStruct['to_process'], d)
+				elif raw in dStruct['to_process']:
+					for i, m in enumerate(lRecords):
+						lRecords[i] = cls.process_field(
+							dStruct['to_process'][raw], m
+						)
 
 			# If Raw requested, return as is
 			if raw:
@@ -2445,16 +2533,25 @@ class Record(Record_Base.Record):
 		# Else, we want one record
 		else:
 
-			# Get one row
-			dRecord = Commands.select(dStruct['host'], sSQL, ESelect.ROW)
+			# Get one row or cell
+			dRecord = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ROW or ESelect.CELL
+			)
 
 			# If there's no data, return None
 			if not dRecord:
 				return None
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				cls.process_record(dStruct['to_process'], dRecord)
+				if bMultiFields:
+					cls.process_record(dStruct['to_process'], dRecord)
+				elif raw in dStruct['to_process']:
+					dRecord = cls.process_field(
+						dStruct['to_process'][raw], dRecord
+					)
 
 			# If Raw requested, return as is
 			if raw:
@@ -2536,38 +2633,52 @@ class Record(Record_Base.Record):
 		return lRecords
 
 	@classmethod
-	def process_record(cls, fields: List[List[str]], record: dict):
-		"""Process Record
+	def process_field(cls, type: str, value: any) -> any:
+		"""Process Field
 
-		Goes through a record and decodes any JSON or bool fields in place, \
-		does not return a new dict
+		Decodes a JSON, bool, or other non-standard field and returns it
 
 		Arguments:
-			fields (list): The list of fields that require decoding
+			type (str): The type of field
+			val (any): The value to process
+
+		Returns:
+			any
+		"""
+
+		# If it's a bool, convert it from 1-0 to True-False
+		if type == 'bool':
+			return value and True or False
+
+		# Else, if it's a json, decode it
+		elif type == 'json':
+			return jsonb.decode(value)
+
+		# Else, if it's a point
+		elif type == 'point':
+			oM = POINT_REGEX.match(value)
+			return { 'lat': oM.group(1), 'long': oM.group(2) }
+
+	@classmethod
+	def process_record(cls, fields: dict, record: dict):
+		"""Process Record
+
+		Goes through a record and decodes any JSON, bool or other non-standard \
+		fields in place, does NOT return a new dict
+
+		Arguments:
+			fields (dict): The dictionary of fields to their decoding type
 			record (dict): The record to process
 		"""
 
 		# Go through each field
-		for l in fields:
+		for sField, sType in fields.items():
 
 			# If it's in the record and it's got a value
-			if l[0] in record and record[l[0]] is not None:
+			if sField in record and record[sField] is not None:
 
-				# If it's a bool, convert it from 1-0 to True-False
-				if l[1] == 'bool':
-					record[l[0]] = record[l[0]] and True or False
-
-				# Else, if it's a json, decode it
-				elif l[1] == 'json':
-					record[l[0]] = jsonb.decode(record[l[0]])
-
-				# Else, if it's a point
-				elif l[1] == 'point':
-					oM = POINT_REGEX.match(record[l[0]])
-					record[l[0]] = {
-						'lat': oM.group(1),
-						'long': oM.group(2)
-					}
+				# Convert it
+				record[sField] = cls.process_field(sType, record[sField])
 
 	@classmethod
 	def process_select(cls, fields: dict, select: List[str]) -> List[str]:
@@ -2942,7 +3053,7 @@ class Record(Record_Base.Record):
 	def search(cls,
 		fields: dict,
 		ids: List[str] | None = None,
-		raw: List[str] | PyLiteral[True] | None = None,
+		raw: str | List[str] | PyLiteral[True] | None = None,
 		orderby: str | List[str] | List[List[str]] = None,
 		limit: int | tuple | None = None,
 		custom: dict = {}
@@ -2954,8 +3065,10 @@ class Record(Record_Base.Record):
 		Arguments:
 			fields (dict): A dictionary of field names to the values they \
 				should match
-			raw (bool|list): Return raw data (dict) for all or a set list of \
-				fields
+			raw (bool|str|list): Optional, default returns a list of Records, \
+				set to True to return a list of dicts, pass a list to return \
+				a list of dicts with only the fields provided, or pass a \
+				single string to return a list of just those values
 			orderby (str|str[]): A field or fields to order the results by
 			limit (int|tuple): The limit and possible starting point
 			custom (dict): Custom Host and DB info
@@ -3651,13 +3764,25 @@ class Record(Record_Base.Record):
 		# If there's an additional filter
 		if filter:
 
-			# Go through each value
-			for n, v in filter.items():
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
 
-				# Generate theSQL and append it to the list
-				lWhere.append(
-					'`%s` %s' % (n, cls.process_value(dStruct, n, v))
-				)
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
+				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Generate the SQL to update the field
 		sSQL = 'UPDATE `%s`.`%s` ' \
