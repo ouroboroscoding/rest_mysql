@@ -3239,7 +3239,7 @@ class Record(Record_Base.Record):
 				# If we need changes
 				if dStruct['changes']:
 					dChanges = {
-						'key': '`key` (`%s`)' % '`, `'.join(dStruct['primary']),
+						'key': '`key` (`%s`)' % dStruct['primary'],
 						'fields': []
 					}
 
