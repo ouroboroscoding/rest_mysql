@@ -1578,7 +1578,7 @@ class Record(Record_Base.Record):
 
 			# Set the where clause
 			sWhere = ' AND '.join([
-				'`%s` %s' % ( s, self.escape(
+				'`%s` = %s' % ( s, self.escape(
 					self._dStruct['host'],
 					self._dStruct['tree'][s],
 					self._dRecord[s]
@@ -1593,7 +1593,7 @@ class Record(Record_Base.Record):
 				raise KeyError(self._dStruct['primary'])
 
 			# Set the where clause
-			sWhere = '`%s` %s' % (
+			sWhere = '`%s` = %s' % (
 				self._dStruct['primary'],
 				self.escape(
 					self._dStruct['host'],
