@@ -1,4 +1,6 @@
 # rest_mysql
+[![pypi version](https://img.shields.io/pypi/v/rest_mysql.svg)](https://pypi.org/project/rest_mysql) ![MIT License](https://img.shields.io/pypi/l/rest_mysql.svg)
+
 Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to newer librairies.
 
 ## Install

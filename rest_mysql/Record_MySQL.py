@@ -20,7 +20,7 @@ from enum import IntEnum
 import re
 import sys
 from time import sleep
-from typing import List, Literal as PyLiteral
+from typing import Dict, List, Literal as PyLiteral
 
 # Pip imports
 import arrow
@@ -437,16 +437,18 @@ class Commands(object):
 		# Print debug if requested
 		if cls._verbose: _print_sql('EXECUTE', host, sql)
 
-		# Fetch a cursor
-		with _wcursor(host) as oCursor:
+		# Catch exceptions
+		try:
 
-			try:
+			# Fetch a cursor
+			with _wcursor(host) as oCursor:
 
 				# If we got a str
 				if isinstance(sql, str):
+					s = sql
 					return oCursor.execute(sql)
 
-				# Init the return
+				# Init return
 				iRet = 0
 
 				# Go through each statment and execute it
@@ -456,78 +458,78 @@ class Commands(object):
 				# Return the changed rows
 				return iRet
 
-			# If the SQL is bad
-			except (pymysql.err.ProgrammingError, pymysql.err.InternalError) as e:
+		# If the SQL is bad
+		except (pymysql.err.ProgrammingError, pymysql.err.InternalError) as e:
 
-				# Raise an SQL Exception
+			# Raise an SQL Exception
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(s)
+				)
+			)
+
+		# Else, a duplicate key error
+		except pymysql.err.IntegrityError as e:
+
+			# Pull out the value and the index name
+			oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+
+			# If we got a match
+			if oMatch:
+
+				# Raise a Duplicate Record Exception
+				raise DuplicateException(
+					oMatch.group(1),
+					oMatch.group(2)
+				)
+
+			# Else, raise an unkown duplicate
+			raise DuplicateException(e.args[0], e.args[1])
+
+		# Else there's an operational problem so close the connection and
+		#	restart
+		except pymysql.err.OperationalError as e:
+			print('----------------------------------------')
+			print('OPERATIONAL ERROR')
+			print(e.args)
+			print('')
+
+			# If the error code is one that won't change
+			if e.args[0] in [1051, 1054, 1136, 1359]:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
 						str(e.args[0]),
 						str(e.args[1]),
-						str(sql)
+						str(s)
 					)
 				)
 
-			# Else, a duplicate key error
-			except pymysql.err.IntegrityError as e:
+			# Increment the error count
+			errcnt += 1
 
-				# Pull out the value and the index name
-				oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+			# If we've hit our max errors, raise an exception
+			if errcnt == MAX_RETRIES:
+				raise ConnectionError(*e.args)
 
-				# If we got a match
-				if oMatch:
+			# Clear the connection and try again
+			_clear_connection(host)
+			return cls.execute(host, sql, errcnt)
 
-					# Raise a Duplicate Record Exception
-					raise DuplicateException(
-						oMatch.group(1),
-						oMatch.group(2)
-					)
+		# Else, catch any Exception
+		except Exception as e:
+			print('\n----------------------------------------')
+			print('Unknown Error in Record_MySQL.Commands.execute')
+			print('host = ' + host)
+			print('sql = ' + str(s))
+			print('exception = ' + str(e.__class__.__name__))
+			print('args = ' + ', '.join([str(s) for s in e.args]))
 
-				# Else, raise an unkown duplicate
-				raise DuplicateException(e.args[0], e.args[1])
-
-			# Else there's an operational problem so close the connection and
-			#	restart
-			except pymysql.err.OperationalError as e:
-				print('----------------------------------------')
-				print('OPERATIONAL ERROR')
-				print(e.args)
-				print('')
-
-				# If the error code is one that won't change
-				if e.args[0] in [1051, 1054, 1136]:
-					raise ValueError(
-						e.args[0],
-						'SQL error (%s): %s\n%s' % (
-							str(e.args[0]),
-							str(e.args[1]),
-							str(sql)
-						)
-					)
-
-				# Increment the error count
-				errcnt += 1
-
-				# If we've hit our max errors, raise an exception
-				if errcnt == MAX_RETRIES:
-					raise ConnectionError(*e.args)
-
-				# Clear the connection and try again
-				_clear_connection(host)
-				return cls.execute(host, sql, errcnt)
-
-			# Else, catch any Exception
-			except Exception as e:
-				print('\n----------------------------------------')
-				print('Unknown Error in Record_MySQL.Commands.execute')
-				print('host = ' + host)
-				print('sql = ' + str(sql))
-				print('exception = ' + str(e.__class__.__name__))
-				print('args = ' + ', '.join([str(s) for s in e.args]))
-
-				# Rethrow
-				raise e
+			# Rethrow
+			raise e
 
 	@classmethod
 	def insert(cls, host: str, sql: str, errcnt: int = 0) -> any:
@@ -553,10 +555,11 @@ class Commands(object):
 		# Print debug if requested
 		if cls._verbose: _print_sql('INSERT', host, sql)
 
-		# Fetch a cursor
-		with _wcursor(host) as oCursor:
+		# Handle exceptions
+		try:
 
-			try:
+			# Fetch a cursor
+			with _wcursor(host) as oCursor:
 
 				# Execute the insert statement
 				oCursor.execute(sql)
@@ -567,10 +570,43 @@ class Commands(object):
 				# Return the last inserted ID
 				return mInsertID
 
-			# If the SQL is bad
-			except pymysql.err.ProgrammingError as e:
+		# If the SQL is bad
+		except pymysql.err.ProgrammingError as e:
 
-				# Raise an SQL Exception
+			# Raise an SQL Exception
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(sql)
+				)
+			)
+
+		# Else, a duplicate key error
+		except pymysql.err.IntegrityError as e:
+
+			# Pull out the value and the index name
+			oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+
+			# If we got a match
+			if oMatch:
+
+				# Raise a Duplicate Record Exception
+				raise DuplicateException(
+					oMatch.group(1),
+					oMatch.group(2)
+				)
+
+			# Else, raise an unkown duplicate
+			raise DuplicateException(e.args[0], e.args[1])
+
+		# Else there's an operational problem so close the connection and
+		#	restart
+		except pymysql.err.OperationalError as e:
+
+			# If the error code is one that won't change
+			if e.args[0] in [1054]:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
@@ -580,61 +616,28 @@ class Commands(object):
 					)
 				)
 
-			# Else, a duplicate key error
-			except pymysql.err.IntegrityError as e:
+			# Increment the error count
+			errcnt += 1
 
-				# Pull out the value and the index name
-				oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+			# If we've hit our max errors, raise an exception
+			if errcnt == MAX_RETRIES:
+				raise ConnectionError(*e.args)
 
-				# If we got a match
-				if oMatch:
+			# Clear the connection and try again
+			_clear_connection(host)
+			return cls.insert(host, sql, errcnt)
 
-					# Raise a Duplicate Record Exception
-					raise DuplicateException(
-						oMatch.group(1),
-						oMatch.group(2)
-					)
+		# Else, catch any Exception
+		except Exception as e:
+			print('\n----------------------------------------')
+			print('Unknown Error in Record_MySQL.Commands.insert')
+			print('host = ' + host)
+			print('sql = ' + str(sql))
+			print('exception = ' + str(e.__class__.__name__))
+			print('args = ' + ', '.join([str(s) for s in e.args]))
 
-				# Else, raise an unkown duplicate
-				raise DuplicateException(e.args[0], e.args[1])
-
-			# Else there's an operational problem so close the connection and
-			#	restart
-			except pymysql.err.OperationalError as e:
-
-				# If the error code is one that won't change
-				if e.args[0] in [1054]:
-					raise ValueError(
-						e.args[0],
-						'SQL error (%s): %s\n%s' % (
-							str(e.args[0]),
-							str(e.args[1]),
-							str(sql)
-						)
-					)
-
-				# Increment the error count
-				errcnt += 1
-
-				# If we've hit our max errors, raise an exception
-				if errcnt == MAX_RETRIES:
-					raise ConnectionError(*e.args)
-
-				# Clear the connection and try again
-				_clear_connection(host)
-				return cls.insert(host, sql, errcnt)
-
-			# Else, catch any Exception
-			except Exception as e:
-				print('\n----------------------------------------')
-				print('Unknown Error in Record_MySQL.Commands.insert')
-				print('host = ' + host)
-				print('sql = ' + str(sql))
-				print('exception = ' + str(e.__class__.__name__))
-				print('args = ' + ', '.join([str(s) for s in e.args]))
-
-				# Rethrow
-				raise e
+			# Rethrow
+			raise e
 
 	@classmethod
 	def select(cls,
@@ -670,10 +673,11 @@ class Commands(object):
 		# Get a cursor
 		bDictCursor = seltype in (ESelect.ALL, ESelect.HASH_ROWS, ESelect.ROW)
 
-		# Fetch a cursor
-		with _wcursor(host, bDictCursor) as oCursor:
+		# Handle exceptions
+		try:
 
-			try:
+			# Fetch a cursor
+			with _wcursor(host, bDictCursor) as oCursor:
 
 				# Run the select statement
 				oCursor.execute(sql)
@@ -726,10 +730,25 @@ class Commands(object):
 				# Return the results
 				return mData
 
-			# If the SQL is bad
-			except pymysql.err.ProgrammingError as e:
+		# If the SQL is bad
+		except pymysql.err.ProgrammingError as e:
 
-				# Raise an SQL Exception
+			# Raise an SQL Exception
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(sql)
+				)
+			)
+
+		# Else there's an operational problem so close the connection and
+		#	restart
+		except pymysql.err.OperationalError as e:
+
+			# If the error code is one that won't change
+			if e.args[0] in [1054]:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
@@ -739,43 +758,28 @@ class Commands(object):
 					)
 				)
 
-			# Else there's an operational problem so close the connection and
-			#	restart
-			except pymysql.err.OperationalError as e:
+			# Increment the error count
+			errcnt += 1
 
-				# If the error code is one that won't change
-				if e.args[0] in [1054]:
-					raise ValueError(
-						e.args[0],
-						'SQL error (%s): %s\n%s' % (
-							str(e.args[0]),
-							str(e.args[1]),
-							str(sql)
-						)
-					)
+			# If we've hit our max errors, raise an exception
+			if errcnt == MAX_RETRIES:
+				raise ConnectionError(*e.args)
 
-				# Increment the error count
-				errcnt += 1
+			# Clear the connection and try again
+			_clear_connection(host)
+			return cls.select(host, sql, seltype, field, errcnt)
 
-				# If we've hit our max errors, raise an exception
-				if errcnt == MAX_RETRIES:
-					raise ConnectionError(*e.args)
+		# Else, catch any Exception
+		except Exception as e:
+			print('\n----------------------------------------')
+			print('Unknown Error in Record_MySQL.Commands.select')
+			print('host = ' + host)
+			print('sql = ' + str(sql))
+			print('exception = ' + str(e.__class__.__name__))
+			print('args = ' + ', '.join([str(s) for s in e.args]))
 
-				# Clear the connection and try again
-				_clear_connection(host)
-				return cls.select(host, sql, seltype, field, errcnt)
-
-			# Else, catch any Exception
-			except Exception as e:
-				print('\n----------------------------------------')
-				print('Unknown Error in Record_MySQL.Commands.select')
-				print('host = ' + host)
-				print('sql = ' + str(sql))
-				print('exception = ' + str(e.__class__.__name__))
-				print('args = ' + ', '.join([str(s) for s in e.args]))
-
-				# Rethrow
-				raise e
+			# Rethrow
+			raise e
 
 class Record(Record_Base.Record):
 	"""Record
@@ -789,13 +793,13 @@ class Record(Record_Base.Record):
 		'bool': 'tinyint(1) unsigned',
 		'date': 'date',
 		'datetime': 'datetime',
-		'decimal': 'decimal',
+		'decimal': False,
 		'float': 'double',
 		'int': 'integer',
 		'ip': 'char(15)',
 		'json': 'text',
 		'md5': 'char(32)',
-		'price': 'decimal(8,2)',
+		'price': False,
 		'string': False,
 		'time': 'time',
 		'timestamp': 'timestamp',
@@ -883,6 +887,38 @@ class Record(Record_Base.Record):
 						else:
 							return 'varchar(%d)' % dMinMax['maximum']
 
+			# Else, if the type is a decimal
+			elif sType == 'decimal':
+
+				# Decimals require __sql__.type set so that we know the exact
+				#	length of the field
+				raise ValueError(
+					'"decimal" requires __sql__.type set in Record_MySQL, ' \
+					'e.g. ' \
+					'decimal(8,2) // 100,000.00 ' \
+					'decimal(5,4) // 3.1415'
+				)
+
+			# Else, if the type is a price
+			elif sType == 'price':
+
+				# Get min/max values
+				dMinMax = node.minmax()
+
+				# If we have don't have a maximum
+				if dMinMax['maximum'] is None:
+					raise ValueError(
+						'"price" nodes must have a __maximum__ value if ' \
+						'__sql__.type is not set in Record_MySQL'
+					)
+
+				# Split the maximum into whole and fration
+				l = str(dMinMax['maximum']).split('.')
+
+				# Generate the type from the length of the maximum + 2, for the
+				#	cents
+				return 'decimal(%i,2)' % (len(l[0]) + 2)
+
 			# Else, get the default
 			elif sType in cls.__nodeToSQL:
 				return cls.__nodeToSQL[sType]
@@ -919,7 +955,7 @@ class Record(Record_Base.Record):
 			)
 
 	@classmethod
-	def add_changes(cls, _id: any, changes: dict, custom: dict = {}) -> bool:
+	def add_changes(cls, key: any, changes: dict, custom: dict = {}) -> bool:
 		"""Add Changes
 
 		Adds a record to the table's associated _changes table. Useful for \
@@ -927,7 +963,7 @@ class Record(Record_Base.Record):
 		tables that shouldn't be updated for every change in a single record
 
 		Arguments:
-			_id (any): The ID of the record the change is associated with
+			key (any): The ID of the record the change is associated with
 			changes (dict): The dictionary of changes to add
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
@@ -962,17 +998,33 @@ class Record(Record_Base.Record):
 				if k not in changes:
 					raise ValueError('"%s" missing from changes' % k)
 
+		# If we have a complex primary key
+		if dStruct['complex_primary']:
+			sKeyFields = '`, `'.join(dStruct['primary'])
+			sKeyValues = ', '.join([
+				cls.escape(
+					dStruct['host'],
+					dStruct['tree'][sKey],
+					key[i]
+				) for i, sKey in enumerate(dStruct['primary'])
+			])
+
+		# Else, we have single field primary key
+		else:
+			sKeyFields = dStruct['primary']
+			sKeyValues = cls.escape(
+				dStruct['host'],
+				dStruct['tree'][dStruct['primary']],
+				key
+			)
+
 		# Generate the INSERT statement
 		sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
 				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
 					dStruct['db'],
 					dStruct['table'],
-					dStruct['primary'],
-					cls.escape(
-						dStruct['host'],
-						dStruct['tree'][dStruct['primary']],
-						_id
-					),
+					sKeyFields,
+					sKeyValues,
 					jsonb.encode(changes)
 				)
 
@@ -983,13 +1035,13 @@ class Record(Record_Base.Record):
 		return iRet and True or False
 
 	@classmethod
-	def append(cls, _id: any, array: str, item: any, custom: dict = {}) -> bool:
+	def append(cls, key: any, array: str, item: any, custom: dict = {}) -> bool:
 		"""Append
 
 		Adds an item to a given array/list for a specific record
 
 		Arguments:
-			_id (any): The ID of the record to append to
+			key (any): The ID of the record to append to
 			array (str): The name of the field with the array
 			item (any): The value to append to the array
 			custom (dict): Custom Host and DB info
@@ -1014,7 +1066,7 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def contains(cls,
-		_id: any,
+		key: any,
 		array: str,
 		item: any,
 		custom: dict = {}
@@ -1024,7 +1076,7 @@ class Record(Record_Base.Record):
 		Checks if a specific item exist inside a given array/list
 
 		Arguments:
-			_id (any): The ID of the record to check
+			key (any): The ID of the record to check
 			array (str): The name of the field with the array
 			item (any): The value to check for in the array
 			custom (dict): Custom Host and DB info
@@ -1040,8 +1092,8 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def count(cls,
-		_id: str | None = None,
-		filter: dict | None = None,
+		key: str | None = None,
+		filter: dict | List[dict] | None = None,
 		custom: dict = { }
 	) -> int:
 		"""Count
@@ -1049,8 +1101,8 @@ class Record(Record_Base.Record):
 		Returns the number of records associated with index or filter
 
 		Arguments:
-			_id (any): The ID(s) to check
-			filter (dict): Additional filter
+			key (any): The ID(s) to check
+			filter (dict|dict[]): Additional filter(s)
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -1066,29 +1118,47 @@ class Record(Record_Base.Record):
 		lWhere = []
 
 		# If there's no primary key, we want all records
-		if _id is None:
+		if key is None:
 			pass
 
 		# If we are using the primary key
 		else:
 
+			# If we have a complex primary
+			if dStruct['complex_primary']:
+				raise RuntimeError('key',
+					'`key` can not be used with complex primary keys. Use ' \
+					'`filter` instead'
+				)
+
 			# Append the ID check
 			lWhere.append('`%s` %s' % (
 				dStruct['primary'],
-				cls.process_value(dStruct, dStruct['primary'], _id)
+				cls.process_value(dStruct, dStruct['primary'], key)
 			))
 
 		# If we want to filter the data further
 		if filter:
 
-			# Go through each value
-			for n,v in filter.items():
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
 
-				# Generate theSQL and append it to the list
-				lWhere.append('`%s` %s' % (
-					n,
-					cls.process_value(dStruct, n, v)
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
 				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Build the statement
 		sSQL = 'SELECT COUNT(*) FROM `%s`.`%s` ' \
@@ -1156,6 +1226,7 @@ class Record(Record_Base.Record):
 					lTemp[0].append('`%s`' % f)
 					lTemp[1].append('@_AUTO_PRIMARY')
 
+			# Else, just append the field name and value
 			elif f in record:
 				lTemp[0].append('`%s`' % f)
 				if record[f] != None:
@@ -1174,7 +1245,7 @@ class Record(Record_Base.Record):
 				for s in lTemp[0]
 			])
 
-		elif isinstance(conflict, (tuple,list)):
+		elif isinstance(conflict, ( tuple,list )):
 			sUpdate = 'ON DUPLICATE KEY UPDATE %s' % ',\n'.join([
 				"%s = VALUES(%s)" % (s, s)
 				for s in conflict
@@ -1262,17 +1333,33 @@ class Record(Record_Base.Record):
 				for k in struct['changes']:
 					dChanges[k] = changes[k]
 
+			# If we have a complex primary key
+			if struct['complex_primary']:
+				sKeyFields = '`, `'.join(struct['primary'])
+				sKeyValues = ', '.join([
+					cls.escape(
+						struct['host'],
+						struct['tree'][sKey],
+						record[sKey]
+					) for sKey in struct['primary']
+				])
+
+			# Else, we have single field primary key
+			else:
+				sKeyFields = struct['primary']
+				sKeyValues = cls.escape(
+					struct['host'],
+					struct['tree'][struct['primary']],
+					record[struct['primary']]
+				)
+
 			# Generate the INSERT statement
 			sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
 					'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
 						struct['db'],
 						struct['table'],
-						struct['primary'],
-						cls.escape(
-							struct['host'],
-							struct['tree'][struct['primary']],
-							record[struct['primary']]
-						),
+						sKeyFields,
+						sKeyValues,
 						Commands.escape(
 							struct['host'],
 							jsonb.encode(dChanges)
@@ -1480,20 +1567,46 @@ class Record(Record_Base.Record):
 			bool
 		"""
 
-		# If the record lacks a primary key (never been created/inserted)
-		if self._dStruct['primary'] not in self._dRecord:
-			raise KeyError(self._dStruct['primary'])
+		# If we have a complex primary
+		if self._dStruct['complex_primary']:
+
+			# If the record lacks any of the primary key values
+			if not all([
+				s in self._dRecord for s in self._dStruct['primary']
+			]):
+				raise KeyError(*self._dStruct['primary'])
+
+			# Set the where clause
+			sWhere = ' AND '.join([
+				'`%s` = %s' % ( s, self.escape(
+					self._dStruct['host'],
+					self._dStruct['tree'][s],
+					self._dRecord[s]
+				) ) for s in self._dStruct['primary']
+			])
+
+		# Else, if we have a single field primary key
+		else:
+
+			# If the record lacks a primary key (never been created/inserted)
+			if self._dStruct['primary'] not in self._dRecord:
+				raise KeyError(self._dStruct['primary'])
+
+			# Set the where clause
+			sWhere = '`%s` = %s' % (
+				self._dStruct['primary'],
+				self.escape(
+					self._dStruct['host'],
+					self._dStruct['tree'][self._dStruct['primary']],
+					self._dRecord[self._dStruct['primary']]
+				)
+			)
 
 		# Generate the DELETE statement
-		sSQL = 'DELETE FROM `%s`.`%s` WHERE `%s` %s' % (
+		sSQL = 'DELETE FROM `%s`.`%s` WHERE %s' % (
 			self._dStruct['db'],
 			self._dStruct['table'],
-			self._dStruct['primary'],
-			self.process_value(
-				self._dStruct,
-				self._dStruct['primary'],
-				self._dRecord[self._dStruct['primary']]
-			)
+			sWhere
 		)
 
 		# Delete the record
@@ -1523,17 +1636,33 @@ class Record(Record_Base.Record):
 				for k in self._dStruct['changes']:
 					dChanges[k] = changes[k]
 
+			# If we have a complex primary key
+			if self._dStruct['complex_primary']:
+				sKeyFields = '`, `'.join(self._dStruct['primary'])
+				sKeyValues = ', '.join([
+					self.escape(
+						self._dStruct['host'],
+						self._dStruct['tree'][sKey],
+						self._dRecord[sKey]
+					) for sKey in self._dStruct['primary']
+				])
+
+			# Else, we have single field primary key
+			else:
+				sKeyFields = self._dStruct['primary']
+				sKeyValues = self.escape(
+					self._dStruct['host'],
+					self._dStruct['tree'][self._dStruct['primary']],
+					self._dRecord[self._dStruct['primary']]
+				)
+
 			# Generate the INSERT statement
 			sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
 					'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
 						self._dStruct['db'],
 						self._dStruct['table'],
-						self._dStruct['primary'],
-						self.escape(
-							self._dStruct['host'],
-							self._dStruct['tree'][self._dStruct['primary']],
-							self._dRecord[self._dStruct['primary']]
-						),
+						sKeyFields,
+						sKeyValues,
 						Commands.escape(
 							self._dStruct['host'],
 							jsonb.encode(dChanges)
@@ -1551,8 +1680,9 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def delete_get(cls,
-		_id: any | List[any] = None,
+		key: any | List[any] = None,
 		index: str | None = None,
+		filter: dict | None = None,
 		custom: dict = {}
 	) -> int:
 		"""Delete Get
@@ -1561,9 +1691,11 @@ class Record(Record_Base.Record):
 		many were found/deleted
 
 		Arguments:
-			_id (any|any[]): The primary key(s) to delete or None for all \
+			key (any|any[]): The primary key(s) to delete or None for all \
 				records
-			index (str): Used as the index instead of the primary key
+			index (str): Not allowed, do not set
+			filter (dict): Optional filter list to decide what records get \
+				deleted
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -1575,6 +1707,12 @@ class Record(Record_Base.Record):
 			int
 		"""
 
+		# Don't allow index
+		if index is not None:
+			raise Exception(
+				'index not a valid argument in Record_MySQL.delete_get'
+			)
+
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
 
@@ -1585,25 +1723,56 @@ class Record(Record_Base.Record):
 				'delete_get'
 			)
 
-		# If there's no index and at least one ID passed
-		if not index and _id:
-			if not dStruct['primary']:
-				raise RuntimeError(
-					'Can not delete by primary key if none exists'
+		# Init the where fields
+		lWhere = []
+
+		# If the primary key was passed
+		if key is not None:
+
+			# If we have a complex primary
+			if dStruct['complex_primary']:
+				raise RuntimeError('key',
+					'`key` can not be used with complex primary keys. Use ' \
+					'`filter` instead'
 				)
-			index = dStruct['primary']
 
-		# Build the statement
-		sSQL = 'DELETE FROM `%s`.`%s`' % (dStruct['db'], dStruct['table'])
+			# Add the primary to the where clause
+			lWhere.append('`%s` %s' % (
+				dStruct['primary'],
+				cls.process_value(dStruct, dStruct['primary'], key)
+			))
 
-		# If we have ID(s)
-		if _id is not None:
-			sSQL += ' WHERE `%s` %s' % (
-				index,
-				cls.process_value(dStruct, index, _id)
-			)
+		# If there's an additional filter
+		if filter:
 
-		# Delete the records
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
+
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
+				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
+
+		# Build the delete statement
+		sSQL = 'DELETE FROM `%s`.`%s` %s' % (
+			dStruct['db'],
+			dStruct['table'],
+			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
+		)
+
+		# Delete the record(s)
 		return Commands.execute(dStruct['host'], sSQL)
 
 	# escape method
@@ -1726,16 +1895,28 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def exists(cls,
-		_id: any, index: str | None = None, custom: dict = {}
+		key: any, index: str | None = None, custom: dict = {}
 	) -> bool:
 		"""Exists
 
-		Returns the ID (primary key) of the record for the specified ID or \
-		unique index value found, else False if no record is found
+		Returns the primary key of the record for the specified ID or \
+		unique index value found, else False if no record is found. Key will \
+		accept multiple values without an error, but only to tell if ANY key \
+		exists, and not if all keys exist. Be warned though, for complex \
+		primary keys, this will only work as expected if one value is static, \
+		e.g.
+
+		Record.exists((
+			[ 'key1_0', 'key1_1', 'key1_2', 'key1_3' ],
+			'key2'
+		))
+
+		Attempting to pass two or more lists to a key in the primary, will \
+		raise an exception
 
 		Arguments:
-			_id (any): The primary key to check
-			index (str): Used as the index instead of the primary key
+			key (any | tuple[any]): The primary key to check
+			index (str): Not allowed, do not set
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -1744,32 +1925,56 @@ class Record(Record_Base.Record):
 			bool
 		"""
 
+		# Don't allow index
+		if index is not None:
+			raise Exception(
+				'index not a valid argument in Record_MySQL.exists'
+			)
+
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
 
-		# If an index was passed
-		if index is not None:
+		# If we have no primary key
+		if not dStruct['primary']:
+			raise RuntimeError(
+				'exists', 'record does not contain a primary key'
+			)
+
+		# If we have a complex primary key
+		if dStruct['complex_primary']:
+
+			# Get the number of lists
+			if len([ True for m in key if isinstance(m, list) ]) > 1:
+				raise ValueError('key',
+					'Can not have multiple lists as part of `key` when ' \
+					'calling exists on a complex primary key record'
+				)
 
 			# Use filter to find the record
 			dRecord = cls.filter(
-				{ index: _id },
+				{ sKey: key[i] for i, sKey in enumerate(dStruct['primary']) },
+				raw = dStruct['primary'],
+				limit = 1,
+				custom = custom
+			)
+			if dRecord:
+				return dRecord
+
+		# Else, we have a single field
+		else:
+
+			# Use the get method to find the record
+			dRecord = cls.get(
+				key,
 				raw = [ dStruct['primary'] ],
 				limit = 1,
 				custom = custom
 			)
-			if not dRecord:
-				return False
+			if dRecord:
+				return dRecord[dStruct['primary']]
 
-		# Else, assume an ID
-		else:
-
-			# Use the get method to find the record
-			dRecord = cls.get(_id, raw = [dStruct['primary']], custom = custom)
-			if not dRecord:
-				return False
-
-		# If anything was returned, return the primary key
-		return dRecord[dStruct['primary']]
+		# Nothing was returned, return failure
+		return False
 
 	def field_set(self, field: str, val: any) -> 'Record':
 		"""Field Set
@@ -1812,7 +2017,7 @@ class Record(Record_Base.Record):
 	@classmethod
 	def filter(cls,
 		fields: dict,
-		raw: List[str] | PyLiteral[True] | None = None,
+		raw: str | List[str] | PyLiteral[True] | None = None,
 		distinct: bool = False,
 		orderby: str | List[str] | List[List[str]] | None = None,
 		limit: int | tuple | None = None,
@@ -1825,8 +2030,10 @@ class Record(Record_Base.Record):
 		Arguments:
 			fields (dict): A dictionary of field names to the values they \
 				should match
-			raw (bool|list): Return raw data (dict) for all or a set list of \
-				fields
+			raw (bool|str|list): Optional, default returns a list of Records, \
+				set to True to return a list of dicts, pass a list to return \
+				a list of dicts with only the fields provided, or pass a \
+				single string to return a list of just those values
 			distinct (bool): Only return distinct data
 			orderby (str|str[]): A field or fields to order the results by
 			limit (int|tuple): The limit and possible starting point
@@ -1842,7 +2049,10 @@ class Record(Record_Base.Record):
 		"""
 
 		# By default we will return multiple records
-		bMulti = True
+		bMultiRecords = True
+
+		# Are we returning dicts/Records, or a column?
+		bMultiFields = not isinstance(raw, str)
 
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
@@ -1852,17 +2062,31 @@ class Record(Record_Base.Record):
 			dStruct['to_rename'],
 			(raw is None or raw is True) and \
 				dStruct['tree'].keys() or \
-				raw
+				(bMultiFields and raw or [ raw ])
 		)
 
 		# Go through each value
 		lWhere = []
-		for n,v in fields.items():
 
-			# Generate theSQL and append it to the list
-			lWhere.append(
-				'`%s` %s' % (n, cls.process_value(dStruct, n, v))
-			)
+		# If we only have one
+		if isinstance(fields, dict):
+			lWhere.append(' AND '.join([
+				'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+				for n,v in fields.items()
+			]))
+
+		# If we have multiple
+		elif isinstance(fields, list):
+			lWhere.append('(%s)' % ') OR ('.join(
+				[ ' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in d.items()
+				]) for d in fields ]
+			))
+
+		# Else, invalid fields
+		else:
+			raise ValueError('fields', 'must be a dict or dict[]')
 
 		# If the order isn't set
 		if orderby is None:
@@ -1898,13 +2122,13 @@ class Record(Record_Base.Record):
 			if isinstance(limit, int):
 				sLimit = 'LIMIT %d' % limit
 				if limit == 1:
-					bMulti = False
+					bMultiRecords = False
 
 			# If we got a tuple/list
 			elif isinstance(limit, (list,tuple)):
 				sLimit = 'LIMIT %d, %d' % (limit[0], limit[1])
 				if limit[1] == 1:
-					bMulti = False
+					bMultiRecords = False
 
 			# Else, invalid limit format
 			else:
@@ -1924,19 +2148,29 @@ class Record(Record_Base.Record):
 				)
 
 		# If we only want multiple records
-		if bMulti:
+		if bMultiRecords:
 
 			# Get all the records
-			lRecords = Commands.select(dStruct['host'], sSQL, ESelect.ALL)
+			lRecords = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ALL or ESelect.COLUMN
+			)
 
 			# If there's no data, return an empty list
 			if not lRecords:
 				return []
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				for d in lRecords:
-					cls.process_record(dStruct['to_process'], d)
+				if bMultiFields:
+					for d in lRecords:
+						cls.process_record(dStruct['to_process'], d)
+				elif raw in dStruct['to_process']:
+					for i, m in enumerate(lRecords):
+						lRecords[i] = cls.process_field(
+							dStruct['to_process'][raw], m
+						)
 
 			# If Raw requested, return as is
 			if raw:
@@ -1949,16 +2183,25 @@ class Record(Record_Base.Record):
 		# Else, we want one record
 		else:
 
-			# Get one row
-			dRecord = Commands.select(dStruct['host'], sSQL, ESelect.ROW)
+			# Get one row or cell
+			dRecord = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ROW or ESelect.CELL
+			)
 
 			# If there's no data, return None
 			if not dRecord:
 				return None
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				cls.process_record(dStruct['to_process'], dRecord)
+				if bMultiFields:
+					cls.process_record(dStruct['to_process'], dRecord)
+				elif raw in dStruct['to_process']:
+					dRecord = cls.process_field(
+						dStruct['to_process'][raw], dRecord
+					)
 
 			# If Raw requested, return as is
 			if raw:
@@ -1994,10 +2237,37 @@ class Record(Record_Base.Record):
 		dConfig = super().generate_config(tree, special, override)
 
 		# Add an empty process section
-		dConfig['to_process'] = [ ]
+		dConfig['to_process'] = { }
 
 		# Add an empty rename section
 		dConfig['to_rename'] = { }
+
+		# If the primary key is a list / tuple, mark it as complex
+		dConfig['complex_primary'] = \
+			isinstance(dConfig['primary'], ( list, tuple ))
+
+		# If it's complex
+		if dConfig['complex_primary']:
+
+			# Make sure we have all the fields
+			if not all(s in tree for s in dConfig['primary']):
+				raise ValueError(
+					'primary', 'not all primary key fields exist in the tree'
+				)
+
+			# If the auto_increment value is set
+			if dConfig['auto_primary']:
+				raise ValueError(
+					'auto_primary',
+					'can not be set to true for complex primary keys'
+				)
+
+		# Else, just make sure we have the primary
+		else:
+			if dConfig['primary'] and dConfig['primary'] not in tree:
+				raise ValueError(
+					'primary', 'primary key field doe not exist in the tree'
+				)
 
 		# Go through each node in the tree
 		for k in tree:
@@ -2013,7 +2283,7 @@ class Record(Record_Base.Record):
 				if sType in ['json', 'bool']:
 
 					# Add it to the list
-					dConfig['to_process'].append([k, sType])
+					dConfig['to_process'][k] = sType
 
 				# Else, if it's a timestamp
 				elif sType == 'timestamp':
@@ -2048,7 +2318,7 @@ class Record(Record_Base.Record):
 							)
 
 						# Add it to the process list
-						dConfig['to_process'].append([k, 'point'])
+						dConfig['to_process'][k] = 'point'
 
 						# Add it to the rename dict
 						dConfig['to_rename'][k] = 'point'
@@ -2057,18 +2327,18 @@ class Record(Record_Base.Record):
 					elif 'json' in dSQL and dSQL['json']:
 
 						# Add it to the list
-						dConfig['to_process'].append([k, 'json'])
+						dConfig['to_process'][k] = 'json'
 
 		# Return the final config
 		return dConfig
 
 	@classmethod
 	def get(cls,
-		_id: any | List[any] | None = None,
+		key: any | List[any] | None = None,
 		index: None = None,
 		filter: dict | None = None,
 		match: None = None,
-		raw: List[str] | PyLiteral[True] | None = None,
+		raw: str | List[str] | PyLiteral[True] | None = None,
 		distinct: bool = False,
 		orderby: str | List[str] | List[List[str]] | None = None,
 		limit: int | tuple | None = None,
@@ -2080,12 +2350,14 @@ class Record(Record_Base.Record):
 		filter
 
 		Arguments:
-			_id (str|str[]): The primary key(s) to fetch from the table
+			key (str|str[]): The primary key(s) to fetch from the table
 			index (str): N/A in MySQL
 			filter (dict): Additional filter
 			match (tuple): N/A in MySQL
-			raw (bool|list): Return raw data (dict) for all or a set list of \
-				fields
+			raw (bool|str|list): Optional, default returns a list of Records, \
+				set to True to return a list of dicts, pass a list to return \
+				a list of dicts with only the fields provided, or pass a \
+				single string to return a list of just those values
 			distinct (bool): Only return distinct data
 			orderby (str|str[]): A field or fields to order the results by
 			limit (int|tuple): The limit and possible starting point
@@ -2107,7 +2379,10 @@ class Record(Record_Base.Record):
 			raise TypeError('match not a valid argument in Record_MySQL.get')
 
 		# By default we will return multiple records
-		bMulti = True
+		bMultiRecords = True
+
+		# Are we returning dicts/Records, or a column?
+		bMultiFields = not isinstance(raw, str)
 
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
@@ -2117,36 +2392,55 @@ class Record(Record_Base.Record):
 			dStruct['to_rename'],
 			(raw is None or raw is True) and \
 				dStruct['tree'].keys() or \
-				raw
+				(bMultiFields and raw or [ raw ])
 		)
 
 		# Init the where fields
 		lWhere = []
 
 		# If there's an id
-		if _id is not None:
+		if key is not None:
+
+			# If we have a complex primary key
+			if dStruct['complex_primary']:
+				raise RuntimeError('get',
+					'can not use .get() with complex primary key records. ' \
+					'Use .filter() instead.'
+				)
 
 			# Add the primary
 			lWhere.append('`%s` %s' % (
 				dStruct['primary'],
-				cls.process_value(dStruct, dStruct['primary'], _id)
+				cls.process_value(dStruct, dStruct['primary'], key)
 			))
 
-			# Check if the _id is a single value
-			if not isinstance(_id, (dict,list,tuple)) or \
-				isinstance(_id, str):
-				bMulti = False
+			# Check if the key is a single value
+			if not isinstance(key, (dict,list,tuple)) or \
+				isinstance(key, str):
+				bMultiRecords = False
 
 		# If there's an additional filter
 		if filter:
 
-			# Go through each value
-			for n,v in filter.items():
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
 
-				# Generate theSQL and append it to the list
-				lWhere.append(
-					'`%s` %s' % (n, cls.process_value(dStruct, n, v))
-				)
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
+				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# If the order isn't set
 		if orderby is None:
@@ -2182,13 +2476,13 @@ class Record(Record_Base.Record):
 			if isinstance(limit, int):
 				sLimit = 'LIMIT %d' % limit
 				if limit == 1:
-					bMulti = False
+					bMultiRecords = False
 
 			# If we got a tuple/list
 			elif isinstance(limit, (list,tuple)):
 				sLimit = 'LIMIT %d, %d' % (limit[0], limit[1])
 				if limit[1] == 1:
-					bMulti = False
+					bMultiRecords = False
 
 		# Build the statement
 		sSQL = 'SELECT %s%s FROM `%s`.`%s` ' \
@@ -2204,19 +2498,29 @@ class Record(Record_Base.Record):
 				)
 
 		# If we only want multiple records
-		if bMulti:
+		if bMultiRecords:
 
 			# Get all the records
-			lRecords = Commands.select(dStruct['host'], sSQL, ESelect.ALL)
+			lRecords = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ALL or ESelect.COLUMN
+			)
 
 			# If there's no data, return an empty list
 			if not lRecords:
 				return []
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				for d in lRecords:
-					cls.process_record(dStruct['to_process'], d)
+				if bMultiFields:
+					for d in lRecords:
+						cls.process_record(dStruct['to_process'], d)
+				elif raw in dStruct['to_process']:
+					for i, m in enumerate(lRecords):
+						lRecords[i] = cls.process_field(
+							dStruct['to_process'][raw], m
+						)
 
 			# If Raw requested, return as is
 			if raw:
@@ -2229,16 +2533,25 @@ class Record(Record_Base.Record):
 		# Else, we want one record
 		else:
 
-			# Get one row
-			dRecord = Commands.select(dStruct['host'], sSQL, ESelect.ROW)
+			# Get one row or cell
+			dRecord = Commands.select(
+				dStruct['host'],
+				sSQL,
+				bMultiFields and ESelect.ROW or ESelect.CELL
+			)
 
 			# If there's no data, return None
 			if not dRecord:
 				return None
 
-			# If we have any JSON fields in the records
+			# If we have any fields that need to be processed / decoded
 			if dStruct['to_process']:
-				cls.process_record(dStruct['to_process'], dRecord)
+				if bMultiFields:
+					cls.process_record(dStruct['to_process'], dRecord)
+				elif raw in dStruct['to_process']:
+					dRecord = cls.process_field(
+						dStruct['to_process'][raw], dRecord
+					)
 
 			# If Raw requested, return as is
 			if raw:
@@ -2250,7 +2563,7 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def get_changes(cls,
-		_id: any,
+		key: any,
 		orderby: str | List[str] | List[List[str]] | None = None,
 		custom: dict = {}
 	) -> List[dict]:
@@ -2260,7 +2573,7 @@ class Record(Record_Base.Record):
 		table. Used by Record types that have the 'changes' flag set.
 
 		Arguments:
-			_id (any): The of the primary record to fetch changes for
+			key (any): The of the primary record to fetch changes for
 			orderby (str|str[]): A field or fields to order the results by
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
@@ -2305,7 +2618,7 @@ class Record(Record_Base.Record):
 			dStruct['db'],
 			dStruct['table'],
 			dStruct['primary'],
-			cls.process_value(dStruct, dStruct['primary'], _id),
+			cls.process_value(dStruct, dStruct['primary'], key),
 			sOrderBy
 		)
 
@@ -2320,38 +2633,52 @@ class Record(Record_Base.Record):
 		return lRecords
 
 	@classmethod
-	def process_record(cls, fields: List[List[str]], record: dict):
-		"""Process Record
+	def process_field(cls, type: str, value: any) -> any:
+		"""Process Field
 
-		Goes through a record and decodes any JSON or bool fields in place, \
-		does not return a new dict
+		Decodes a JSON, bool, or other non-standard field and returns it
 
 		Arguments:
-			fields (list): The list of fields that require decoding
+			type (str): The type of field
+			val (any): The value to process
+
+		Returns:
+			any
+		"""
+
+		# If it's a bool, convert it from 1-0 to True-False
+		if type == 'bool':
+			return value and True or False
+
+		# Else, if it's a json, decode it
+		elif type == 'json':
+			return jsonb.decode(value)
+
+		# Else, if it's a point
+		elif type == 'point':
+			oM = POINT_REGEX.match(value)
+			return { 'lat': oM.group(1), 'long': oM.group(2) }
+
+	@classmethod
+	def process_record(cls, fields: dict, record: dict):
+		"""Process Record
+
+		Goes through a record and decodes any JSON, bool or other non-standard \
+		fields in place, does NOT return a new dict
+
+		Arguments:
+			fields (dict): The dictionary of fields to their decoding type
 			record (dict): The record to process
 		"""
 
 		# Go through each field
-		for l in fields:
+		for sField, sType in fields.items():
 
 			# If it's in the record and it's got a value
-			if l[0] in record and record[l[0]] is not None:
+			if sField in record and record[sField] is not None:
 
-				# If it's a bool, convert it from 1-0 to True-False
-				if l[1] == 'bool':
-					record[l[0]] = record[l[0]] and True or False
-
-				# Else, if it's a json, decode it
-				elif l[1] == 'json':
-					record[l[0]] = jsonb.decode(record[l[0]])
-
-				# Else, if it's a point
-				elif l[1] == 'point':
-					oM = POINT_REGEX.match(record[l[0]])
-					record[l[0]] = {
-						'lat': oM.group(1),
-						'long': oM.group(2)
-					}
+				# Convert it
+				record[sField] = cls.process_field(sType, record[sField])
 
 	@classmethod
 	def process_select(cls, fields: dict, select: List[str]) -> List[str]:
@@ -2505,14 +2832,14 @@ class Record(Record_Base.Record):
 
 	@classmethod
 	def remove(cls,
-		_id: any, array: str, index: int, custom: dict = {}
+		key: any, array: str, index: int, custom: dict = {}
 	) -> bool:
 		"""Remove
 
 		Removes an item from a given array/list for a specific record
 
 		Arguments:
-			_id (any): The ID of the record to remove from
+			key (any): The ID of the record to remove from
 			array (str): The name of the field with the array
 			index (uint): The index of the array to remove
 			custom (dict): Custom Host and DB info
@@ -2548,9 +2875,40 @@ class Record(Record_Base.Record):
 		if not self._dChanged:
 			return False
 
-		# If there is no primary key in the record
-		if self._dStruct['primary'] not in self._dRecord:
-			raise KeyError(self._dStruct['primary'])
+		# If we have a complex primary key
+		if self._dStruct['complex_primary']:
+
+			# If any of the fields are missing
+			if not all(s in self._dRecord for s in self._dStruct['primary']):
+				raise KeyError(self._dStruct['primary'])
+
+			# Generate the where clause
+			sWhere = ' AND '.join([
+				'`%s` = %s' % (
+					s, self.escape(
+						self._dStruct['host'],
+						self._dStruct['tree'][s],
+						self._dRecord[s]
+					)
+				) for s in self._dStruct['primary']
+			])
+
+		# Else, we have a single field primary key
+		else:
+
+			# If there is no primary key in the record
+			if self._dStruct['primary'] not in self._dRecord:
+				raise KeyError(self._dStruct['primary'])
+
+			# Generate the where clause
+			sWhere = '`%s` = %s' % (
+				self._dStruct['primary'],
+				self.escape(
+					self._dStruct['host'],
+					self._dStruct['tree'][self._dStruct['primary']],
+					self._dRecord[self._dStruct['primary']]
+				)
+			)
 
 		# If revisions are required
 		if self._dStruct['revisions']:
@@ -2563,16 +2921,11 @@ class Record(Record_Base.Record):
 				return False
 
 			# Use the primary key to fetch the record and return the rev
-			sSQL = 'SELECT `%s` FROM `%s`.`%s` WHERE `%s` = %s' % (
+			sSQL = 'SELECT `%s` FROM `%s`.`%s` WHERE %s' % (
 				self._dStruct['rev_field'],
 				self._dStruct['db'],
 				self._dStruct['table'],
-				self._dStruct['primary'],
-				self.escape(
-					self._dStruct['host'],
-					self._dStruct['tree'][self._dStruct['primary']],
-					self._dRecord[self._dStruct['primary']]
-				)
+				sWhere
 			)
 
 			# Select the cell
@@ -2619,16 +2972,11 @@ class Record(Record_Base.Record):
 
 		# Generate SQL
 		sSQL = 'UPDATE `%s`.`%s` SET %s ' \
-				'WHERE `%s` = %s' % (
+				'WHERE %s' % (
 					self._dStruct['db'],
 					self._dStruct['table'],
 					', '.join(lValues),
-					self._dStruct['primary'],
-					self.escape(
-						self._dStruct['host'],
-						self._dStruct['tree'][self._dStruct['primary']],
-						self._dRecord[self._dStruct['primary']]
-					)
+					sWhere
 				)
 
 		# Update the record
@@ -2658,17 +3006,31 @@ class Record(Record_Base.Record):
 				for k in self._dStruct['changes']:
 					dChanges[k] = changes[k]
 
+			# If we have a complex primary
+			if self._dStruct['complex_primary']:
+				sPrimaryKey = '`, `'.join(self._dStruct['primary'])
+				sPrimaryValue = ', '.join([
+					self.escape(
+						self._dStruct['host'],
+						self._dStruct['tree'][s],
+						self._dRecord[s]
+					) for s in self._dStruct['primary']
+				])
+			else:
+				sPrimaryKey = self._dStruct['primary']
+				sPrimaryValue = self.escape(
+					self._dStruct['host'],
+					self._dStruct['tree'][self._dStruct['primary']],
+					self._dRecord[self._dStruct['primary']]
+				)
+
 			# Generate the INSERT statement
 			sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
 					'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
 						self._dStruct['db'],
 						self._dStruct['table'],
-						self._dStruct['primary'],
-						self.escape(
-							self._dStruct['host'],
-							self._dStruct['tree'][self._dStruct['primary']],
-							self._dRecord[self._dStruct['primary']]
-						),
+						sPrimaryKey,
+						sPrimaryValue,
 						Commands.escape(
 							self._dStruct['host'],
 							jsonb.encode(dChanges)
@@ -2691,7 +3053,7 @@ class Record(Record_Base.Record):
 	def search(cls,
 		fields: dict,
 		ids: List[str] | None = None,
-		raw: List[str] | PyLiteral[True] | None = None,
+		raw: str | List[str] | PyLiteral[True] | None = None,
 		orderby: str | List[str] | List[List[str]] = None,
 		limit: int | tuple | None = None,
 		custom: dict = {}
@@ -2703,8 +3065,10 @@ class Record(Record_Base.Record):
 		Arguments:
 			fields (dict): A dictionary of field names to the values they \
 				should match
-			raw (bool|list): Return raw data (dict) for all or a set list of \
-				fields
+			raw (bool|str|list): Optional, default returns a list of Records, \
+				set to True to return a list of dicts, pass a list to return \
+				a list of dicts with only the fields provided, or pass a \
+				single string to return a list of just those values
 			orderby (str|str[]): A field or fields to order the results by
 			limit (int|tuple): The limit and possible starting point
 			custom (dict): Custom Host and DB info
@@ -2811,31 +3175,136 @@ class Record(Record_Base.Record):
 
 		# If the 'create' value is missing
 		if 'create' not in dStruct:
-			raise ValueError(
+			raise ValueError(dStruct['table'],
 				'Record_MySQL.table_create requires \'create\' in config. ' \
-				'i.e. ["_id", "field1", "field2", "etc"]'
+				'i.e. ["key", "field1", "field2", "etc"]'
 			)
 
-		# If the primary key is added, remove it
-		if dStruct['primary'] in dStruct['create']:
-			dStruct['create'].remove(dStruct['primary'])
+		# Init the list of fields
+		lFields = []
 
-		# Get all child node keys
-		lNodeKeys = dStruct['tree'].keys()
-		lMissing = [
-			s for s in lNodeKeys \
-			if s not in dStruct['create'] and s != dStruct['primary']
-		]
+		# If we have a primary key
+		if dStruct['primary']:
+
+			# If we have a complex primary key
+			if dStruct['complex_primary']:
+
+				# Step through each field
+				for s in dStruct['primary']:
+
+					# If it's been added
+					if s in dStruct['create']:
+						dStruct['create'].remove(s)
+
+				# Get all child node keys
+				lNodeKeys = dStruct['tree'].keys()
+				lMissing = [
+					s for s in lNodeKeys \
+					if s not in dStruct['create'] and \
+						s not in dStruct['primary']
+				]
+
+				# Init the list of indexes with the complex primary key
+				lIndexes = [
+					'primary key (`%s`)' % '`, `'.join(dStruct['primary'])
+				]
+
+				# If we need changes
+				if dStruct['changes']:
+					dChanges = {
+						'key': '`key` (`%s`)' % '`, `'.join(dStruct['primary']),
+						'fields': []
+					}
+
+				# For code re-use later on
+				lKeys = dStruct['primary']
+
+			# Else, we have a single field as primary key
+			else:
+
+				# If the primary key is added, remove it
+				if dStruct['primary'] in dStruct['create']:
+					dStruct['create'].remove(dStruct['primary'])
+
+				# Get all child node keys
+				lNodeKeys = dStruct['tree'].keys()
+				lMissing = [
+					s for s in lNodeKeys \
+					if s not in dStruct['create'] and s != dStruct['primary']
+				]
+
+				# Init the list of indexes with the primary key
+				lIndexes = [ 'primary key (`%s`)' % dStruct['primary'] ]
+
+				# If we need changes
+				if dStruct['changes']:
+					dChanges = {
+						'key': '`key` (`%s`)' % dStruct['primary'],
+						'fields': []
+					}
+
+				# For code re-use later on
+				lKeys = [ dStruct['primary'] ]
+
+			# Step through the primary keys
+			for sKey in lKeys:
+
+				# Get the sql special data for the primary
+				dSQL = dStruct['tree'][sKey].special(
+					'sql', default = {}
+				)
+
+				# If it's a string
+				if isinstance(dSQL, str):
+					dSQL = { 'type': dSQL }
+
+				# Primary key type
+				sIDType = 'type' in dSQL and \
+					dSQL['type'] or \
+					cls._node_to_type(
+						dStruct['tree'][sKey],
+						dStruct['host']
+					)
+				sIDOpts = 'opts' in dSQL and dSQL['opts'] or 'not null'
+
+				# Add the line
+				lFields.append('`%s` %s %s%s' % (
+					sKey,
+					sIDType,
+					(dStruct['auto_primary'] is True and \
+	  					'auto_increment ' or ''),
+					sIDOpts
+				))
+
+				# If we need changes, add the field
+				if dStruct['changes']:
+					dChanges['fields'].append('`%s` %s %s' % (
+						sKey,
+						sIDType,
+						sIDOpts
+					))
+
+		# Else, no primary key
+		else:
+
+			# Init indexes
+			lIndexes = []
+
+			# Get all child node keys
+			lNodeKeys = dStruct['tree'].keys()
+			lMissing = [
+				s for s in lNodeKeys \
+				if s not in dStruct['create']
+			]
 
 		# If any are missing
 		if lMissing:
-			raise ValueError(
+			raise ValueError(dStruct['table'],
 				'Record_MySQL.table_create missing fields `%s` for `%s`.`%s`' %
 				( '`, `'.join(lMissing), dStruct['db'], dStruct['table'] )
 			)
 
-		# Generate the list of fields
-		lFields = []
+		# Generate the list of non-primary fields
 		for f in dStruct['create']:
 
 			# Get the sql special data
@@ -2858,48 +3327,12 @@ class Record(Record_Base.Record):
 				)
 			))
 
-		# If we have a primary key
-		if dStruct['primary']:
-
-			# Push the primary key to the front
-			#	Get the sql special data
-			dSQL = dStruct['tree'][dStruct['primary']].special(
-				'sql', default = {}
-			)
-
-			# If it's a string
-			if isinstance(dSQL, str):
-				dSQL = { 'type': dSQL }
-
-			# Primary key type
-			sIDType = 'type' in dSQL and \
-				dSQL['type'] or \
-				cls._node_to_type(
-					dStruct['tree'][dStruct['primary']],
-					dStruct['host']
-				)
-			sIDOpts = 'opts' in dSQL and dSQL['opts'] or 'not null'
-
-			# Add the line
-			lFields.insert(0, '`%s` %s %s%s' % (
-				dStruct['primary'],
-				sIDType,
-				(dStruct['auto_primary'] is True and 'auto_increment ' or ''),
-				sIDOpts
-			))
-
-			# Init the list of indexes
-			lIndexes = ['primary key (`%s`)' % dStruct['primary']]
-
-		else:
-			lIndexes = []
-
 		# If there are indexes
 		if dStruct['indexes']:
 
 			# Make sure it's a dict
 			if not isinstance(dStruct['indexes'], dict):
-				raise ValueError(
+				raise ValueError(dStruct['table'],
 					'Record_MySQL.table_create requires \'indexes\' to be a ' \
 					'dict'
 				)
@@ -2940,43 +3373,42 @@ class Record(Record_Base.Record):
 				))
 
 		# Generate the CREATE statement
-		sSQL = 'CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) '\
-				'ENGINE=%s CHARSET=%s COLLATE=%s' % (
-					dStruct['db'],
-					dStruct['table'],
-					', '.join(lFields),
-					', '.join(lIndexes),
-					'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-					'charset' in dStruct and dStruct['charset'] or 'utf8',
-					'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
-				)
-
-		# Create the table
-		Commands.execute(dStruct['host'], sSQL)
+		lSQL = [
+			'CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) '\
+			'ENGINE=%s CHARSET=%s COLLATE=%s' % (
+				dStruct['db'],
+				dStruct['table'],
+				', '.join(lFields),
+				', '.join(lIndexes),
+				'engine' in dStruct and dStruct['engine'] or 'InnoDB',
+				'charset' in dStruct and dStruct['charset'] or 'utf8',
+				'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+			)
+		]
 
 		# If changes are required
 		if dStruct['primary'] and dStruct['changes']:
 
 			# Generate the CREATE statement
-			sSQL = 'CREATE TABLE IF NOT EXISTS `%s`.`%s_changes` (' \
-					'`%s` %s not null %s, ' \
-					'`created` datetime not null DEFAULT CURRENT_TIMESTAMP, ' \
-					'`items` text not null, ' \
-					'index `%s` (`%s`)) ' \
-					'ENGINE=%s CHARSET=%s COLLATE=%s' % (
-				dStruct['db'],
-				dStruct['table'],
-				dStruct['primary'],
-				sIDType,
-				sIDOpts,
-				dStruct['primary'], dStruct['primary'],
-				'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-				'charset' in dStruct and dStruct['charset'] or 'utf8',
-				'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+			lSQL.append(
+				'CREATE TABLE IF NOT EXISTS `%s`.`%s_changes` (' \
+				'%s, ' \
+				'`created` datetime not null DEFAULT CURRENT_TIMESTAMP, ' \
+				'`items` text not null, ' \
+				'index %s) ' \
+				'ENGINE=%s CHARSET=%s COLLATE=%s' % (
+					dStruct['db'],
+					dStruct['table'],
+					', '.join(dChanges['fields']),
+					dChanges['key'],
+					'engine' in dStruct and dStruct['engine'] or 'InnoDB',
+					'charset' in dStruct and dStruct['charset'] or 'utf8',
+					'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+				)
 			)
 
-			# Create the table
-			Commands.execute(dStruct['host'], sSQL)
+		# Create the table(s) and triggers
+		Commands.execute(dStruct['host'], lSQL)
 
 		# Return OK
 		return True
@@ -3024,10 +3456,255 @@ class Record(Record_Base.Record):
 		return True
 
 	@classmethod
+	def _triggers_validate(cls, struct):
+		"""Triggers Validate
+
+		Validates and cleans up the trigger data
+
+		Arguments:
+			struct (dict): The classes' struct data to use
+
+		Returns:
+			None
+		"""
+
+		# If we have no triggers
+		if 'triggers' not in struct or not struct['triggers']:
+			raise ValueError(struct['table'], 'No triggers found')
+
+		# Make sure it's a list
+		if not isinstance(struct['triggers'], list):
+			raise ValueError(struct['table'],
+				'"triggers" must be a list of dicts'
+			)
+
+		# Step through each trigger
+		for i, d in enumerate(struct['triggers']):
+
+			# Make sure it's a dict
+			if not isinstance(d, dict):
+				raise ValueError(struct['table'],
+					'"triggers" must be a list of dicts'
+				)
+
+			# Make sure all data is there
+			try: evaluate(d, [ 'event', 'sql', 'time' ])
+			except ValueError as e:
+				raise ValueError(struct['table'],
+					[ 'triggers.%i.%s' % (i, f) for f in e.args ],
+					'missing'
+				)
+
+			# If the event is wrong
+			if d['event'].upper() not in [ 'DELETE', 'INSERT', 'UPDATE' ]:
+				raise ValueError(struct['table'],
+					'triggers.%i.event invalid' % i
+				)
+
+			# If the time is wrong
+			if d['time'].upper() not in [ 'AFTER', 'BEFORE' ]:
+				raise ValueError(struct['table'],
+					'triggers.%i.time invalid' % i
+				)
+
+			# If the sql is not a string
+			if not isinstance(d['sql'], str):
+
+				# Is it a list?
+				if isinstance(d['sql'], list):
+					d['sql'] = '\n'.join(d['sql'])
+
+				# Else, it's an error
+				else:
+					raise ValueError(struct['table'],
+						'triggers.%i.sql invalid' % i
+					)
+
+	@classmethod
+	def triggers_create(cls, return_sql = False, custom = {}):
+		"""Triggers Create
+
+		Creates the triggers associated with the record's table/collection/etc \
+		in the DB. If `return_sql` is set to a struct, that struct is used to \
+		generate the SQL and return it instead of being executed. This is for \
+		the triggers_reinstall method
+
+		Arguments:
+			return_sql (False | struct): Optional, set to a struct to use that \
+				struct to generate the SQL
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			bool
+		"""
+
+		# Init generated SQL statements
+		lSQL = []
+
+		# If we have no struct
+		if not return_sql:
+
+			# Get the structure
+			dStruct = cls.struct(custom)
+
+			# Validate the data
+			cls._triggers_validate(dStruct)
+
+		# Else, use the struct passed
+		else:
+			dStruct = return_sql
+
+		# Go through the triggers
+		for d in dStruct['triggers']:
+
+			# Generate the SQL
+			lSQL.append(
+				'CREATE TRIGGER `%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`\n' \
+				'%(timeu)s %(eventu)s ON `%(db)s`.`%(table)s`\n' \
+				'%(sql)s;' % {
+					'db': dStruct['db'],
+					'table': dStruct['table'],
+					'name': ('name' in d and ('_%s' % d['name']) or ''),
+					'time': d['time'],
+					'timeu': d['time'].upper(),
+					'event': d['event'],
+					'eventu': d['event'].upper(),
+					'sql': d['sql'] % dStruct
+				}
+			)
+
+		# If we want to return so we can join this with _drop for _reinstall
+		if return_sql:
+			return lSQL
+
+		# If we have any triggers to install
+		if lSQL:
+			try:
+				Commands.execute(dStruct['host'], lSQL)
+			except ValueError as e:
+				if e.args[0] == 1359:
+					pass
+				else:
+					raise e
+
+		# Return OK
+		return True
+
+	@classmethod
+	def triggers_drop(cls, return_sql = False, custom = {}):
+		"""Triggers Drop
+
+		Drops the triggers associated with the record's table/collection/etc \
+		in the DB. If `return_sql` is set to a struct, that struct is used to \
+		generate the SQL and return it instead of being executed. This is for \
+		the triggers_reinstall method
+
+		Arguments:
+			return_sql (False | struct): Optional, set to a struct to use that \
+				struct to generate the SQL
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			bool
+		"""
+
+		# Init generated SQL statements
+		lSQL = []
+
+		# If we have no struct
+		if not return_sql:
+
+			# Get the structure
+			dStruct = cls.struct(custom)
+
+			# Validate the data
+			cls._triggers_validate(dStruct)
+
+		# Else, use the struct passed
+		else:
+			dStruct = return_sql
+
+		# Go through the triggers
+		for d in dStruct['triggers']:
+
+			# Generate the SQL
+			lSQL.append(
+				'DROP TRIGGER IF EXISTS `%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`'
+				% {
+					'db': dStruct['db'],
+					'table': dStruct['table'],
+					'name': ('name' in d and ('_%s' % d['name']) or ''),
+					'time': d['time'],
+					'event': d['event']
+				}
+			)
+
+		# If we want to return so we can join this with _create for _reinstall
+		if return_sql:
+			return lSQL
+
+		# If we have any triggers to drop
+		if lSQL:
+			Commands.execute(dStruct['host'], lSQL)
+
+		# Return OK
+		return True
+
+	@classmethod
+	def triggers_recreate(cls, custom = {}):
+		"""Triggers Re-Create
+
+		Drops the triggers associated with the record's table/collection/etc \
+		in the DB, then creates them again. Locks the table so no rows get in \
+		while this is happening
+
+		Arguments:
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			bool
+		"""
+
+		# Get the struct
+		dStruct = cls.struct(custom)
+
+		# Validate the data
+		cls._triggers_validate(dStruct)
+
+		# Init the SQL by locking the table
+		lSQL = [ 'LOCK TABLES `%(db)s`.`%(table)s` WRITE' % dStruct ]
+
+		# Call the _drop method to generate the DROP TRIGGER
+		lSQL.extend(
+			cls.triggers_drop(return_sql = dStruct)
+		)
+
+		# Call the _create method to generate the CREATE TRIGGER
+		lSQL.extend(
+			cls.triggers_create(return_sql = dStruct)
+		)
+
+		# Unlock the table
+		lSQL.append('UNLOCK TABLES')
+
+		# If there's anything (LOCK / UNLOCK statements don't count), execute it
+		if len(lSQL) > 2:
+			Commands.execute(dStruct['host'], lSQL)
+
+		# Return OK
+		return True
+
+	@classmethod
 	def update_field(cls,
 		field: str,
 		value: any,
-		_id: any | List[any] | None = None,
+		key: any | List[any] | None = None,
 		index: str | None = None,
 		filter: dict | None = None,
 		custom: dict = {}
@@ -3040,7 +3717,7 @@ class Record(Record_Base.Record):
 		Arguments:
 			field (str): The name of the field to update
 			value (any): The value to set the field to
-			_id (any): Optional ID(s) to filter by
+			key (any): Optional ID(s) to filter by
 			index (str): Optional name of the index to use instead of primary
 			filter (dict): Optional filter list to decide what records get \
 				updated
@@ -3068,23 +3745,44 @@ class Record(Record_Base.Record):
 		# Init the where fields
 		lWhere = []
 
-		# Add the primary if passed
-		if _id is not None:
+		# If the primary key was passed
+		if key is not None:
+
+			# If we have a complex primary
+			if dStruct['complex_primary']:
+				raise RuntimeError('key',
+					'`key` can not be used with complex primary keys. Use ' \
+					'`filter` instead'
+				)
+
+			# Add the primary to the where clause
 			lWhere.append('`%s` %s' % (
 				dStruct['primary'],
-				cls.process_value(dStruct, dStruct['primary'], _id)
+				cls.process_value(dStruct, dStruct['primary'], key)
 			))
 
 		# If there's an additional filter
 		if filter:
 
-			# Go through each value
-			for n,v in filter.items():
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
 
-				# Generate theSQL and append it to the list
-				lWhere.append(
-					'`%s` %s' % (n, cls.process_value(dStruct, n, v))
-				)
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
+				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Generate the SQL to update the field
 		sSQL = 'UPDATE `%s`.`%s` ' \
