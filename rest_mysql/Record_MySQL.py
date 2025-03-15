@@ -843,7 +843,8 @@ class Record(Record_Base.Record):
 
 			# Can't use any in MySQL
 			if sType == 'any':
-				raise ValueError('"any" nodes can not be used in Record_MySQL')
+				raise ValueError(node,
+					'"any" nodes can not be used in Record_MySQL')
 
 			# If the type is a string
 			elif sType in [ 'base64', 'string' ]:
@@ -866,7 +867,7 @@ class Record(Record_Base.Record):
 
 					# If we have don't have a maximum
 					if dMinMax['maximum'] is None:
-						raise ValueError(
+						raise ValueError(node,
 							'"string" nodes must have a __maximum__ value if ' \
 							'__sql__.type is not set in Record_MySQL'
 						)
@@ -894,7 +895,7 @@ class Record(Record_Base.Record):
 
 				# Decimals require __sql__.type set so that we know the exact
 				#	length of the field
-				raise ValueError(
+				raise ValueError(node,
 					'"decimal" requires __sql__.type set in Record_MySQL, ' \
 					'e.g. ' \
 					'decimal(8,2) // 100,000.00 ' \
@@ -909,7 +910,7 @@ class Record(Record_Base.Record):
 
 				# If we have don't have a maximum
 				if dMinMax['maximum'] is None:
-					raise ValueError(
+					raise ValueError(node,
 						'"price" nodes must have a __maximum__ value if ' \
 						'__sql__.type is not set in Record_MySQL'
 					)
@@ -937,7 +938,8 @@ class Record(Record_Base.Record):
 
 			# Else
 			else:
-				raise ValueError('"%s" is not a known type to Record_MySQL')
+				raise ValueError(node,
+					'"%s" is not a known type to Record_MySQL')
 
 		# Else, if it's an Array, Hash, or Parent
 		elif sClass in [ 'Array', 'Hash', 'Parent' ]:
@@ -952,7 +954,7 @@ class Record(Record_Base.Record):
 
 			# If it doesn't exist, or there's no json flag
 			if not dSQL or 'json' not in dSQL or not dSQL['json']:
-				raise TypeError(
+				raise TypeError(node,
 					'Record_MySQL can not process Define %s nodes without ' \
 					'the json flag set, or the type set to "point"' % sClass
 				)
@@ -962,7 +964,7 @@ class Record(Record_Base.Record):
 
 		# Else, any other type isn't implemented
 		else:
-			raise TypeError(
+			raise TypeError(node,
 				'Record_MySQL can not process Define %s nodes' % sClass
 			)
 
@@ -1181,7 +1183,7 @@ class Record(Record_Base.Record):
 		record: dict,
 		struct: dict,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
-		changes: dict | None = None
+		changes: dict | None | PyLiteral[False] = None
 	) -> any:
 		"""Create (base)
 
@@ -1214,6 +1216,7 @@ class Record(Record_Base.Record):
 
 		# Create the string of all fields and values but the primary if it's
 		#	auto incremented
+		bAutoPrimary = False
 		lTemp = [[], []]
 		for f in struct['tree'].keys():
 
@@ -1222,6 +1225,9 @@ class Record(Record_Base.Record):
 			if f == struct['primary'] and \
 				struct['auto_primary'] and \
 				f not in record:
+
+				# We need an auto generated key
+				bAutoPrimary = True
 
 				# If it's a got a command to run, add the field and set the
 				#	value to the SQL command
@@ -1276,7 +1282,7 @@ class Record(Record_Base.Record):
 				)
 
 		# If the primary key is auto generated
-		if struct['auto_primary']:
+		if bAutoPrimary:
 
 			# If we have a specific command to run
 			if 'auto_primary_call' in struct:
@@ -1313,7 +1319,7 @@ class Record(Record_Base.Record):
 				mRet = True
 
 		# If changes are required and the record was saved
-		if mRet is not None and struct['changes']:
+		if changes is not False and mRet is not None and struct['changes']:
 
 			# Create the changes record
 			dChanges = {
@@ -1368,7 +1374,7 @@ class Record(Record_Base.Record):
 
 	def create(self,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
-		changes: dict | None = None
+		changes: dict | None | PyLiteral[False] = None
 	) -> any:
 		"""Create
 
@@ -1386,6 +1392,10 @@ class Record(Record_Base.Record):
 		Returns:
 			any
 		"""
+
+		# If changes is False, set it to None
+		if changes is False:
+			changes = None
 
 		# Call the base create and store the result
 		mRes = self._create(self._dRecord, self._dStruct, conflict, changes)
@@ -1513,7 +1523,7 @@ class Record(Record_Base.Record):
 	def create_now(cls,
 		record: dict,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
-		changes: dict | None = None,
+		changes: dict | None | PyLiteral[False] = None,
 		custom: dict = {}
 	) -> any:
 		"""Create Now
@@ -1525,7 +1535,8 @@ class Record(Record_Base.Record):
 			record (dict): The raw record data
 			conflict (str): Must be one of 'error', 'ignore', 'replace'
 			changes (dict): Data needed to store a change record, is \
-				dependant on the 'changes' config value
+				dependant on the 'changes' config value, set to False to \
+				bypass the creation of the changes record
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -2318,13 +2329,16 @@ class Record(Record_Base.Record):
 
 							# If it's binary
 							if bBinary:
-								dConfig['auto_primary_call'] = [
-									'`%s`.UUID_TO_BIN(UUID())' % dConfig['db'],
-									sType in [ 'uuid', 'uuid4' ] and \
+								dConfig['auto_primary_call'] = \
+									sType in [ 'uuid', 'uuid4' ] and [
+										'`%s`.UUID_TO_BIN(UUID())' % \
+											dConfig['db'],
 										'`%s`.BIN_TO_UUID(@_AUTO_PRIMARY)' % \
-											dConfig['db'] or \
-									 	'LOWER(HEX(@_AUTO_PRIMARY))'
-								]
+											dConfig['db']
+									] or [
+										"UNHEX(REPLACE(UUID(), '-', ''))",
+										'LOWER(HEX(@_AUTO_PRIMARY))'
+									]
 
 							# Else, if it's a string
 							else:
@@ -2336,7 +2350,7 @@ class Record(Record_Base.Record):
 								]
 
 			# Else, if it's an object/dict type
-			elif sClass in ['Array', 'Hash', 'Parent']:
+			elif sClass in [ 'Array', 'Hash', 'Parent' ]:
 
 				# If it has an SQL section
 				dSQL = tree[k].special('sql')
