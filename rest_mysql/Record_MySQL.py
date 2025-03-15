@@ -11,7 +11,7 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2020-02-12"
 
 # Ouroboros imports
-from define import Base, Parent
+from define import Parent
 from tools import clone, evaluate
 import jsonb
 
@@ -20,7 +20,7 @@ from enum import IntEnum
 import re
 import sys
 from time import sleep
-from typing import Dict, List, Literal as PyLiteral
+from typing import List, Literal as PyLiteral
 
 # Pip imports
 import arrow
@@ -803,6 +803,8 @@ class Record(Record_Base.Record):
 		'string': False,
 		'time': 'time',
 		'timestamp': 'timestamp',
+		'tuuid': 'char(32)',
+		'tuuid4': 'char(32)',
 		'uint': 'integer unsigned',
 		'uuid': 'char(36)',
 		'uuid4': 'char(36)'
@@ -813,14 +815,14 @@ class Record(Record_Base.Record):
 	"""
 
 	@classmethod
-	def _node_to_type(cls, node: Base, host: str) -> str:
+	def _node_to_type(cls, struct: dict, node: str) -> str:
 		"""Node To Type
 
 		Converts the Node type to a valid MySQL field type
 
 		Arguments:
-			node (Define.Base): The node we need an SQL type for
-			host (str): The host in case we need to escape anything
+			struct (dict): The struct associated with the instance
+			field (str): The name of the node to get a type for
 
 		Raises:
 			TypeError
@@ -831,28 +833,29 @@ class Record(Record_Base.Record):
 		"""
 
 		# Get the node's class
-		sClass = node.class_name()
+		sClass = struct['tree'][node].class_name()
 
 		# If it's a regular node
 		if sClass == 'Node':
 
 			# Get the node's type
-			sType = node.type()
+			sType = struct['tree'][node].type()
 
 			# Can't use any in MySQL
 			if sType == 'any':
-				raise ValueError('"any" nodes can not be used in Record_MySQL')
+				raise ValueError(node,
+					'"any" nodes can not be used in Record_MySQL')
 
 			# If the type is a string
 			elif sType in [ 'base64', 'string' ]:
 
 				# If we have options
-				lOptions = node.options()
+				lOptions = struct['tree'][node].options()
 				if not lOptions is None:
 
 					# Create an enum
 					return 'enum(%s)' % (','.join([
-						cls.escape(host, node, s)
+						cls.escape(struct, node, s)
 						for s in lOptions
 					]))
 
@@ -860,11 +863,11 @@ class Record(Record_Base.Record):
 				else:
 
 					# Get min/max values
-					dMinMax = node.minmax()
+					dMinMax = struct['tree'][node].minmax()
 
 					# If we have don't have a maximum
 					if dMinMax['maximum'] is None:
-						raise ValueError(
+						raise ValueError(node,
 							'"string" nodes must have a __maximum__ value if ' \
 							'__sql__.type is not set in Record_MySQL'
 						)
@@ -892,7 +895,7 @@ class Record(Record_Base.Record):
 
 				# Decimals require __sql__.type set so that we know the exact
 				#	length of the field
-				raise ValueError(
+				raise ValueError(node,
 					'"decimal" requires __sql__.type set in Record_MySQL, ' \
 					'e.g. ' \
 					'decimal(8,2) // 100,000.00 ' \
@@ -903,11 +906,11 @@ class Record(Record_Base.Record):
 			elif sType == 'price':
 
 				# Get min/max values
-				dMinMax = node.minmax()
+				dMinMax = struct['tree'][node].minmax()
 
 				# If we have don't have a maximum
 				if dMinMax['maximum'] is None:
-					raise ValueError(
+					raise ValueError(node,
 						'"price" nodes must have a __maximum__ value if ' \
 						'__sql__.type is not set in Record_MySQL'
 					)
@@ -919,19 +922,30 @@ class Record(Record_Base.Record):
 				#	cents
 				return 'decimal(%i,2)' % (len(l[0]) + 2)
 
+			# Else, if it's some form of uuid
+			elif sType in [ 'tuuid', 'tuuid4', 'uuid', 'uuid4' ]:
+
+				# If it has an sql section with the binary flag set as True
+				dSQL = struct['tree'][node].special('sql')
+				if dSQL and 'binary' in dSQL and dSQL['binary']:
+					return 'binary(16)'
+				else:
+					return cls.__nodeToSQL[sType]
+
 			# Else, get the default
 			elif sType in cls.__nodeToSQL:
 				return cls.__nodeToSQL[sType]
 
 			# Else
 			else:
-				raise ValueError('"%s" is not a known type to Record_MySQL')
+				raise ValueError(node,
+					'"%s" is not a known type to Record_MySQL')
 
 		# Else, if it's an Array, Hash, or Parent
 		elif sClass in [ 'Array', 'Hash', 'Parent' ]:
 
 			# Get the sql section
-			dSQL = node.special('sql')
+			dSQL = struct['tree'][node].special('sql')
 
 			# If it's a parent and it's marked as a point
 			if 'type' in dSQL and dSQL['type'] == 'point' and \
@@ -940,7 +954,7 @@ class Record(Record_Base.Record):
 
 			# If it doesn't exist, or there's no json flag
 			if not dSQL or 'json' not in dSQL or not dSQL['json']:
-				raise TypeError(
+				raise TypeError(node,
 					'Record_MySQL can not process Define %s nodes without ' \
 					'the json flag set, or the type set to "point"' % sClass
 				)
@@ -950,7 +964,7 @@ class Record(Record_Base.Record):
 
 		# Else, any other type isn't implemented
 		else:
-			raise TypeError(
+			raise TypeError(node,
 				'Record_MySQL can not process Define %s nodes' % sClass
 			)
 
@@ -1002,21 +1016,14 @@ class Record(Record_Base.Record):
 		if dStruct['complex_primary']:
 			sKeyFields = '`, `'.join(dStruct['primary'])
 			sKeyValues = ', '.join([
-				cls.escape(
-					dStruct['host'],
-					dStruct['tree'][sKey],
-					key[i]
-				) for i, sKey in enumerate(dStruct['primary'])
+				cls.escape(dStruct, sKey, key[i]) \
+				for i, sKey in enumerate(dStruct['primary'])
 			])
 
 		# Else, we have single field primary key
 		else:
 			sKeyFields = dStruct['primary']
-			sKeyValues = cls.escape(
-				dStruct['host'],
-				dStruct['tree'][dStruct['primary']],
-				key
-			)
+			sKeyValues = cls.escape(dStruct, dStruct['primary'], key)
 
 		# Generate the INSERT statement
 		sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
@@ -1176,7 +1183,7 @@ class Record(Record_Base.Record):
 		record: dict,
 		struct: dict,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
-		changes: dict | None = None
+		changes: dict | None | PyLiteral[False] = None
 	) -> any:
 		"""Create (base)
 
@@ -1209,6 +1216,7 @@ class Record(Record_Base.Record):
 
 		# Create the string of all fields and values but the primary if it's
 		#	auto incremented
+		bAutoPrimary = False
 		lTemp = [[], []]
 		for f in struct['tree'].keys():
 
@@ -1218,9 +1226,12 @@ class Record(Record_Base.Record):
 				struct['auto_primary'] and \
 				f not in record:
 
-				# If it's a string, add the field and set the value to the
-				#	SQL variable
-				if isinstance(struct['auto_primary'], str):
+				# We need an auto generated key
+				bAutoPrimary = True
+
+				# If it's a got a command to run, add the field and set the
+				#	value to the SQL command
+				if 'auto_primary_call' in struct:
 
 					# Add the field and set the value to the SQL variable
 					lTemp[0].append('`%s`' % f)
@@ -1230,11 +1241,7 @@ class Record(Record_Base.Record):
 			elif f in record:
 				lTemp[0].append('`%s`' % f)
 				if record[f] != None:
-					lTemp[1].append(cls.escape(
-						struct['host'],
-						struct['tree'][f],
-						record[f]
-					))
+					lTemp[1].append(cls.escape(struct, f, record[f]))
 				else:
 					lTemp[1].append('NULL')
 
@@ -1275,24 +1282,22 @@ class Record(Record_Base.Record):
 				)
 
 		# If the primary key is auto generated
-		if struct['auto_primary']:
+		if bAutoPrimary:
 
-			# If it's a string
-			if isinstance(struct['auto_primary'], str):
+			# If we have a specific command to run
+			if 'auto_primary_call' in struct:
 
-				# Set the SQL variable to the requested value
-				Commands.execute(
-					struct['host'],
-					'SET @_AUTO_PRIMARY = %s' % struct['auto_primary']
-				)
-
-				# Execute the regular SQL
-				Commands.execute(struct['host'], sSQL)
+				# Set the SQL variable to the requested value and run the
+				#	insert
+				Commands.execute(struct['host'], [
+					'SET @_AUTO_PRIMARY = %s' % struct['auto_primary_call'][0],
+					sSQL
+				])
 
 				# Fetch the SQL variable
 				record[struct['primary']] = Commands.select(
 					struct['host'],
-					'SELECT @_AUTO_PRIMARY',
+					'SELECT %s' % struct['auto_primary_call'][1],
 					ESelect.CELL
 				)
 
@@ -1314,12 +1319,12 @@ class Record(Record_Base.Record):
 				mRet = True
 
 		# If changes are required and the record was saved
-		if mRet is not None and struct['changes']:
+		if changes is not False and mRet is not None and struct['changes']:
 
 			# Create the changes record
 			dChanges = {
 				'old': None,
-				'new': 'inserted'
+				'new': record
 			}
 
 			# If Changes requires fields
@@ -1337,20 +1342,15 @@ class Record(Record_Base.Record):
 			if struct['complex_primary']:
 				sKeyFields = '`, `'.join(struct['primary'])
 				sKeyValues = ', '.join([
-					cls.escape(
-						struct['host'],
-						struct['tree'][sKey],
-						record[sKey]
-					) for sKey in struct['primary']
+					cls.escape(struct, sKey, record[sKey]) \
+					for sKey in struct['primary']
 				])
 
 			# Else, we have single field primary key
 			else:
 				sKeyFields = struct['primary']
 				sKeyValues = cls.escape(
-					struct['host'],
-					struct['tree'][struct['primary']],
-					record[struct['primary']]
+					struct, struct['primary'], record[struct['primary']]
 				)
 
 			# Generate the INSERT statement
@@ -1374,7 +1374,7 @@ class Record(Record_Base.Record):
 
 	def create(self,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
-		changes: dict | None = None
+		changes: dict | None | PyLiteral[False] = None
 	) -> any:
 		"""Create
 
@@ -1392,6 +1392,10 @@ class Record(Record_Base.Record):
 		Returns:
 			any
 		"""
+
+		# If changes is False, set it to None
+		if changes is False:
+			changes = None
 
 		# Call the base create and store the result
 		mRes = self._create(self._dRecord, self._dStruct, conflict, changes)
@@ -1479,11 +1483,7 @@ class Record(Record_Base.Record):
 				else:
 
 					if f in o and o[f] != None:
-						lValues.append(cls.escape(
-							dStruct['host'],
-							dStruct['tree'][f],
-							o[f]
-						))
+						lValues.append(cls.escape(dStruct, f, o[f]))
 					else:
 						lValues.append('NULL')
 
@@ -1523,7 +1523,7 @@ class Record(Record_Base.Record):
 	def create_now(cls,
 		record: dict,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
-		changes: dict | None = None,
+		changes: dict | None | PyLiteral[False] = None,
 		custom: dict = {}
 	) -> any:
 		"""Create Now
@@ -1535,7 +1535,8 @@ class Record(Record_Base.Record):
 			record (dict): The raw record data
 			conflict (str): Must be one of 'error', 'ignore', 'replace'
 			changes (dict): Data needed to store a change record, is \
-				dependant on the 'changes' config value
+				dependant on the 'changes' config value, set to False to \
+				bypass the creation of the changes record
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -1579,9 +1580,7 @@ class Record(Record_Base.Record):
 			# Set the where clause
 			sWhere = ' AND '.join([
 				'`%s` = %s' % ( s, self.escape(
-					self._dStruct['host'],
-					self._dStruct['tree'][s],
-					self._dRecord[s]
+					self._dStruct, s, self._dRecord[s]
 				) ) for s in self._dStruct['primary']
 			])
 
@@ -1596,8 +1595,8 @@ class Record(Record_Base.Record):
 			sWhere = '`%s` = %s' % (
 				self._dStruct['primary'],
 				self.escape(
-					self._dStruct['host'],
-					self._dStruct['tree'][self._dStruct['primary']],
+					self._dStruct,
+					self._dStruct['primary'],
 					self._dRecord[self._dStruct['primary']]
 				)
 			)
@@ -1640,19 +1639,16 @@ class Record(Record_Base.Record):
 			if self._dStruct['complex_primary']:
 				sKeyFields = '`, `'.join(self._dStruct['primary'])
 				sKeyValues = ', '.join([
-					self.escape(
-						self._dStruct['host'],
-						self._dStruct['tree'][sKey],
-						self._dRecord[sKey]
-					) for sKey in self._dStruct['primary']
+					self.escape(self._dStruct, sKey, self._dRecord[sKey]) \
+					for sKey in self._dStruct['primary']
 				])
 
 			# Else, we have single field primary key
 			else:
 				sKeyFields = self._dStruct['primary']
 				sKeyValues = self.escape(
-					self._dStruct['host'],
-					self._dStruct['tree'][self._dStruct['primary']],
+					self._dStruct,
+					self._dStruct['primary'],
 					self._dRecord[self._dStruct['primary']]
 				)
 
@@ -1672,8 +1668,12 @@ class Record(Record_Base.Record):
 			# Insert the changes
 			Commands.execute(self._dStruct['host'], sSQL)
 
-		# Remove the primary key value so we can't delete again or save
-		del self._dRecord[self._dStruct['primary']]
+		# Remove the primary key value(s) so we can't delete again or save
+		if self._dStruct['complex_primary']:
+			for s in self._dStruct['primary']:
+				del self._dRecord[s]
+		else:
+			del self._dRecord[self._dStruct['primary']]
 
 		# Return OK
 		return True
@@ -1777,14 +1777,14 @@ class Record(Record_Base.Record):
 
 	# escape method
 	@classmethod
-	def escape(cls, host: str, node: Base, value: any) -> str:
+	def escape(cls, struct: dict, node: str, value: any) -> str:
 		"""Escape
 
 		Takes a value and turns it into an acceptable string for SQL
 
 		Args:
-			host (str): The name of the host if we need to call the server
-			node (Define.Base): The node associated with the data to escape
+			struct (dict): The structure associated with the instance
+			node (str): The name of the node to use to escape
 			value (any): The value to escape
 
 		Raises:
@@ -1805,13 +1805,13 @@ class Record(Record_Base.Record):
 		else:
 
 			# Get the Node's class
-			sClass = node.class_name()
+			sClass = struct['tree'][node].class_name()
 
 			# If it's a standard Node
 			if sClass == 'Node':
 
 				# Get the type
-				type_ = node.type()
+				type_ = struct['tree'][node].type()
 
 				# If we're escaping a bool
 				if type_ == 'bool':
@@ -1831,8 +1831,7 @@ class Record(Record_Base.Record):
 						)
 
 				# Else if it's a date, md5, or UUID, return as is
-				elif type_ in ('base64', 'date', 'datetime', 'md5', 'time',
-					'uuid', 'uuid4'):
+				elif type_ in ('base64', 'date', 'datetime', 'md5', 'time'):
 					return "'%s'" % value
 
 				# Else if the value is a decimal value
@@ -1848,44 +1847,63 @@ class Record(Record_Base.Record):
 					(isinstance(value, int) or re.match('^\d+$', value)):
 					return 'FROM_UNIXTIME(%s)' % str(value)
 
+				# Else, if it's a trimmed binary uuid, unhex it
+				elif type_ in [ 'tuuid', 'tuuid4', 'uuid', 'uuid4' ]:
+
+					# If it is in the to process dict
+					if node in struct['to_process']:
+
+						# If it's a trimmed uuid, unhex it
+						if struct['to_process'][node] in [ 'tuuid', 'tuuid4' ]:
+							return "UNHEX('%s')" % value
+
+						# Else, if it's a full uuid, convert it to binary
+						elif struct['to_process'][node] in [ 'uuid', 'uuid4' ]:
+							return "`%s`.UUID_TO_BIN('%s')" % (
+								struct['db'],  value
+							)
+
+					# Else, just throw single quotes around it
+					else:
+						return "'%s'" % value
+
 				# Else it's a standard escape
 				else:
-					return "'%s'" % Commands.escape(host, value)
+					return "'%s'" % Commands.escape(struct['host'], value)
 
 			# Else, if it's a Parent node
 			elif sClass in ['Array', 'Hash', 'Parent']:
 
-				# Get the sql section
-				dSQL = node.special('sql')
+				# If it's in the 'to_process' section
+				if node in struct['to_process']:
 
-				# If it's a parent and it's marked as a point
-				if 'type' in dSQL and dSQL['type'] == 'point' and \
-					sClass == 'Parent':
+					# If it's a point
+					if struct['to_process'][node] == 'point':
 
-						# Check the value
-						try:
-							evaluate(value, [ 'lat', 'long' ])
-						except ValueError as e:
-							raise ValueError(
-								node.name(),
-								'must contain a "lat" and "long" value'
+						# If it's a parent
+						if sClass == 'Parent':
+
+							# Check the value
+							try:
+								evaluate(value, [ 'lat', 'long' ])
+							except ValueError as e:
+								raise ValueError(
+									struct['tree'][node].name(),
+									'must contain a "lat" and "long" value'
+								)
+
+							# Return it as an SQL POINT
+							return 'POINT(%s, %s)' % (
+								str(float(value['lat'])),
+								str(float(value['long']))
 							)
 
-						# Return it as an SQL POINT
-						return 'POINT(%s, %s)' % (
-							str(float(value['lat'])),
-							str(float(value['long']))
+					# If it's json, encode it, then escape it at the host level
+					elif struct['to_process'][node] == 'json':
+						return "'%s'" % Commands.escape(
+							struct['host'],
+							jsonb.encode(value)
 						)
-
-				# If it doesn't exist, or there's no json flag
-				if not dSQL or 'json' not in dSQL or not dSQL['json']:
-					raise TypeError(
-						'Record_MySQL can not process Define %s nodes ' \
-						'without the json flag set' % sClass
-					)
-
-				# JSON encode the data and then escape it
-				return "'%s'" % Commands.escape(host, jsonb.encode(value))
 
 			# Else, any other type isn't implemented
 			else:
@@ -2059,7 +2077,7 @@ class Record(Record_Base.Record):
 
 		# Generate the SELECT fields
 		sFields = cls.process_select(
-			dStruct['to_rename'],
+			dStruct,
 			(raw is None or raw is True) and \
 				dStruct['tree'].keys() or \
 				(bMultiFields and raw or [ raw ])
@@ -2280,7 +2298,7 @@ class Record(Record_Base.Record):
 
 				# If it's json or bool type
 				sType = tree[k].type()
-				if sType in ['json', 'bool']:
+				if sType in [ 'json', 'bool' ]:
 
 					# Add it to the list
 					dConfig['to_process'][k] = sType
@@ -2291,8 +2309,48 @@ class Record(Record_Base.Record):
 					# Add it to the rename dict
 					dConfig['to_rename'][k] = 'timestamp'
 
+				# Else, if it's a UUID
+				elif sType in [ 'tuuid', 'tuuid4', 'uuid', 'uuid4' ]:
+
+					# If it has an SQL section with a binary flag
+					dSQL = tree[k].special('sql')
+					if dSQL and 'binary' in dSQL and dSQL['binary']:
+						bBinary = True
+						dConfig['to_rename'][k] = sType
+						dConfig['to_process'][k] = sType
+					else:
+						bBinary = False
+
+					# If it's the primary field
+					if k == dConfig['primary']:
+
+						# If it's meant to be auto generated
+						if dConfig['auto_primary']:
+
+							# If it's binary
+							if bBinary:
+								dConfig['auto_primary_call'] = \
+									sType in [ 'uuid', 'uuid4' ] and [
+										'`%s`.UUID_TO_BIN(UUID())' % \
+											dConfig['db'],
+										'`%s`.BIN_TO_UUID(@_AUTO_PRIMARY)' % \
+											dConfig['db']
+									] or [
+										"UNHEX(REPLACE(UUID(), '-', ''))",
+										'LOWER(HEX(@_AUTO_PRIMARY))'
+									]
+
+							# Else, if it's a string
+							else:
+								dConfig['auto_primary_call'] = [
+									sType in [ 'uuid', 'uuid4' ] and \
+										'UUID()' or
+										"REPLACE(UUID(), '-', '')",
+									'@_AUTO_PRIMARY'
+								]
+
 			# Else, if it's an object/dict type
-			elif sClass in ['Array', 'Hash', 'Parent']:
+			elif sClass in [ 'Array', 'Hash', 'Parent' ]:
 
 				# If it has an SQL section
 				dSQL = tree[k].special('sql')
@@ -2389,7 +2447,7 @@ class Record(Record_Base.Record):
 
 		# Generate the SELECT fields
 		sFields = cls.process_select(
-			dStruct['to_rename'],
+			dStruct,
 			(raw is None or raw is True) and \
 				dStruct['tree'].keys() or \
 				(bMultiFields and raw or [ raw ])
@@ -2659,6 +2717,10 @@ class Record(Record_Base.Record):
 			oM = POINT_REGEX.match(value)
 			return { 'lat': oM.group(1), 'long': oM.group(2) }
 
+		# Else, return as is
+		else:
+			return value
+
 	@classmethod
 	def process_record(cls, fields: dict, record: dict):
 		"""Process Record
@@ -2681,14 +2743,14 @@ class Record(Record_Base.Record):
 				record[sField] = cls.process_field(sType, record[sField])
 
 	@classmethod
-	def process_select(cls, fields: dict, select: List[str]) -> List[str]:
+	def process_select(cls, struct: dict, select: List[str]) -> List[str]:
 		"""Process Select
 
 		Goes through select fields and renames them based on their type so \
 		that we get the expected values
 
 		Arguments:
-			fields (dict): The field to type map
+			struct (dict): The structure of the instance
 			select (str[]): The list of select fields to convert
 
 		Returns:
@@ -2699,22 +2761,32 @@ class Record(Record_Base.Record):
 		lRet = [ ]
 
 		# If we have no renames
-		if fields == []:
+		if struct['to_rename'] == []:
 			return ', '.join([ '`%s`' % f for f in select ])
 
 		# Step through all the select fields
 		for f in select:
 
 			# If it's in the renames
-			if f in fields:
+			if f in struct['to_rename']:
 
 				# If it's a point
-				if fields[f] == 'point':
-					lRet.append('ST_AsText(`%s`) as `%s`' % (f, f))
+				if struct['to_rename'][f] == 'point':
+					lRet.append('ST_AsText(`%s`) as `%s`' % ( f, f ))
 
 				# Else, if it's a timestamp
-				elif fields[f] == 'timestamp':
-					lRet.append('UNIX_TIMESTAMP(`%s`) as `%s`' % (f, f))
+				elif struct['to_rename'][f] == 'timestamp':
+					lRet.append('UNIX_TIMESTAMP(`%s`) as `%s`' % ( f, f ))
+
+				# Else, if it's a trimmed uuid
+				elif struct['to_rename'][f] in [ 'tuuid', 'tuuid4' ]:
+					lRet.append('LOWER(HEX(`%s`)) as `%s`' % ( f, f ))
+
+				# Else, if it's a uuid
+				elif struct['to_rename'][f] in [ 'uuid', 'uuid4' ]:
+					lRet.append('`%s`.BIN_TO_UUID(`%s`) as `%s`' % (
+						struct['db'], f, f
+					))
 
 			# Else, add it as is
 			else:
@@ -2743,7 +2815,7 @@ class Record(Record_Base.Record):
 		oNode = struct['tree'][field]
 
 		# If the value is a list
-		if isinstance(value, (list,tuple)):
+		if isinstance(value, ( list, tuple )):
 
 			# Build the list of values
 			lValues = []
@@ -2752,7 +2824,7 @@ class Record(Record_Base.Record):
 				if i is None:
 					lValues.append('NULL')
 				else:
-					lValues.append(cls.escape(struct['host'], oNode, i))
+					lValues.append(cls.escape(struct, field, i))
 			sRet = 'IN (%s)' % ','.join(lValues)
 
 		# Else if the value is a dictionary
@@ -2761,31 +2833,31 @@ class Record(Record_Base.Record):
 			# If it has a start and end
 			if 'between' in value:
 				sRet = 'BETWEEN %s AND %s' % (
-					cls.escape(struct['host'], oNode, value['between'][0]),
-					cls.escape(struct['host'], oNode, value['between'][1])
+					cls.escape(struct, field, value['between'][0]),
+					cls.escape(struct, field, value['between'][1])
 				)
 
 			# Else if we have a less than
 			elif 'lt' in value:
-				sRet = '< ' + cls.escape(struct['host'], oNode, value['lt'])
+				sRet = '< ' + cls.escape(struct, field, value['lt'])
 
 			# Else if we have a greater than
 			elif 'gt' in value:
-				sRet = '> ' + cls.escape(struct['host'], oNode, value['gt'])
+				sRet = '> ' + cls.escape(struct, field, value['gt'])
 
 			# Else if we have a less than equal
 			elif 'lte' in value:
-				sRet = '<= ' + cls.escape(struct['host'], oNode, value['lte'])
+				sRet = '<= ' + cls.escape(struct, field, value['lte'])
 
 			# Else if we have a greater than equal
 			elif 'gte' in value:
-				sRet = '>= ' + cls.escape(struct['host'], oNode, value['gte'])
+				sRet = '>= ' + cls.escape(struct, field, value['gte'])
 
 			# Else if we have a not equal
 			elif 'neq' in value:
 
 				# If the value is a list
-				if isinstance(value['neq'], (list,tuple)):
+				if isinstance(value['neq'], ( list, tuple )):
 
 					# Build the list of values
 					lValues = []
@@ -2795,7 +2867,7 @@ class Record(Record_Base.Record):
 							lValues.append('NULL')
 						else:
 							lValues.append(
-								cls.escape(struct['host'], oNode, i)
+								cls.escape(struct, field, i)
 							)
 					sRet = 'NOT IN (%s)' % ','.join(lValues)
 
@@ -2805,12 +2877,12 @@ class Record(Record_Base.Record):
 						sRet = 'IS NOT NULL'
 					else:
 						sRet = '!= ' + cls.escape(
-							struct['host'], oNode, value['neq']
+							struct, field, value['neq']
 						)
 
 			elif 'like' in value:
 				sRet = 'LIKE ' + cls.escape(
-					struct['host'], oNode, value['like']
+					struct, field, value['like']
 				)
 
 			# No valid key in dictionary
@@ -2825,7 +2897,7 @@ class Record(Record_Base.Record):
 
 			# If it's None
 			if value is None: sRet = 'IS NULL'
-			else: sRet = '= ' + cls.escape(struct['host'], oNode, value)
+			else: sRet = '= ' + cls.escape(struct, field, value)
 
 		# Return the processed value
 		return sRet
@@ -2885,11 +2957,7 @@ class Record(Record_Base.Record):
 			# Generate the where clause
 			sWhere = ' AND '.join([
 				'`%s` = %s' % (
-					s, self.escape(
-						self._dStruct['host'],
-						self._dStruct['tree'][s],
-						self._dRecord[s]
-					)
+					s, self.escape(self._dStruct, s, self._dRecord[s])
 				) for s in self._dStruct['primary']
 			])
 
@@ -2904,8 +2972,8 @@ class Record(Record_Base.Record):
 			sWhere = '`%s` = %s' % (
 				self._dStruct['primary'],
 				self.escape(
-					self._dStruct['host'],
-					self._dStruct['tree'][self._dStruct['primary']],
+					self._dStruct,
+					self._dStruct['primary'],
 					self._dRecord[self._dStruct['primary']]
 				)
 			)
@@ -2961,11 +3029,7 @@ class Record(Record_Base.Record):
 				not self._dStruct['auto_primary']:
 				if dValues[f] != None:
 					lValues.append('`%s` = %s' % (
-						f, self.escape(
-							self._dStruct['host'],
-							self._dStruct['tree'][f],
-							dValues[f]
-						)
+						f, self.escape(self._dStruct, f, dValues[f])
 					))
 				else:
 					lValues.append('`%s` = NULL' % f)
@@ -3010,17 +3074,14 @@ class Record(Record_Base.Record):
 			if self._dStruct['complex_primary']:
 				sPrimaryKey = '`, `'.join(self._dStruct['primary'])
 				sPrimaryValue = ', '.join([
-					self.escape(
-						self._dStruct['host'],
-						self._dStruct['tree'][s],
-						self._dRecord[s]
-					) for s in self._dStruct['primary']
+					self.escape(self._dStruct, s, self._dRecord[s]) \
+					for s in self._dStruct['primary']
 				])
 			else:
 				sPrimaryKey = self._dStruct['primary']
 				sPrimaryValue = self.escape(
-					self._dStruct['host'],
-					self._dStruct['tree'][self._dStruct['primary']],
+					self._dStruct,
+					self._dStruct['primary'],
 					self._dRecord[self._dStruct['primary']]
 				)
 
@@ -3261,17 +3322,15 @@ class Record(Record_Base.Record):
 				# Primary key type
 				sIDType = 'type' in dSQL and \
 					dSQL['type'] or \
-					cls._node_to_type(
-						dStruct['tree'][sKey],
-						dStruct['host']
-					)
+					cls._node_to_type(dStruct, sKey)
 				sIDOpts = 'opts' in dSQL and dSQL['opts'] or 'not null'
 
 				# Add the line
 				lFields.append('`%s` %s %s%s' % (
 					sKey,
 					sIDType,
-					(dStruct['auto_primary'] is True and \
+					((dStruct['auto_primary'] is True and \
+	  					'auto_primary_call' not in dStruct) and \
 	  					'auto_increment ' or ''),
 					sIDOpts
 				))
@@ -3319,7 +3378,7 @@ class Record(Record_Base.Record):
 				f,
 				('type' in dSQL and \
 					dSQL['type'] or \
-					cls._node_to_type(dStruct['tree'][f], dStruct['host'])
+					cls._node_to_type(dStruct, f)
 				),
 				('opts' in dSQL and \
 					dSQL['opts'] or \
@@ -3789,7 +3848,7 @@ class Record(Record_Base.Record):
 				'SET `%s` = %s ' \
 				'%s' % (
 			dStruct['db'], dStruct['table'],
-			field, cls.escape(dStruct['host'], dStruct['tree'][field], value),
+			field, cls.escape(dStruct, field, value),
 			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
 		)
 
