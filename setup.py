@@ -17,10 +17,11 @@ setup(
 	author='Chris Nasr - Ouroboros Coding Inc.',
 	author_email='chris@ouroboroscoding.com',
 	license='MIT',
-	packages=['rest_mysql'],
+	packages=[ 'rest_mysql' ],
 	python_requires='>=3.10',
 	install_requires=[
 		'arrow>=1.3.0,<1.4',
+		'config-oc>=1.1.0,<1.2',
 		'define-oc>=1.0.5,<1.1',
 		'json-fix>=1.0.0,<1.1',
 		'jsonb>=1.0.0,<1.1',
