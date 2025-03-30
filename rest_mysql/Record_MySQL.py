@@ -3430,8 +3430,8 @@ class Record(Record_Base.Record):
 				', '.join(lFields),
 				', '.join(lIndexes),
 				'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-				'charset' in dStruct and dStruct['charset'] or 'utf8',
-				'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+				'charset' in dStruct and dStruct['charset'] or 'utf8mb4',
+				'collate' in dStruct and dStruct['collate'] or 'utf8mb4_bin'
 			)
 		]
 
@@ -3451,8 +3451,8 @@ class Record(Record_Base.Record):
 					', '.join(dChanges['fields']),
 					dChanges['key'],
 					'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-					'charset' in dStruct and dStruct['charset'] or 'utf8',
-					'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+					'charset' in dStruct and dStruct['charset'] or 'utf8mb4',
+					'collate' in dStruct and dStruct['collate'] or 'utf8mb4_bin'
 				)
 			)
 
