@@ -7,10 +7,11 @@ fixes have been done. See [releases](releases.md) for more info.
 
 ## Contents
 - [Install](#install)
-- [Module Configuration](#module-configuration)
 - [Binary UUID and UUIDv4](#binary-uuid-and-uuidv4)
+- [Module Configuration](#module-configuration)
 - [Table Configuration](#table-configuration)
 - [Column Configuration](#column-configuration)
+- [Using](#using)
 
 ## Install
 
@@ -48,52 +49,45 @@ for how to describe MySQL tables and their columns. It uses `define-oc`'s
 
 [ [top](#rest_mysql) / [contents](#contents) ]
 
-## Table configuration
+### Table configuration
 By setting the `__sql__` special section at the `Tree` level, we configure the
 options for the table. Things like the primary key and indexes, or keeping track
 of changes to table records.
 
 ```json
 {
-  "__name__": "my_table",
   "__sql__": {
-    "changes": [ "user_id" ],
+    "changes": [ "user" ],
     "charset": "utf8mb4",
     "collate": "utf8mb4_0900_ai_ci",
-    "create": [ "created", "updated", "name", "option" ],
+    "create": [ "_created", "_updated", "name", "options" ],
     "db": "my_db",
     "indexes": {
       "name": { "unique": null }
     }
-  },
-  "_id": { "__type__": "tuuid" },
-  "created": { "__type__": "timestamp" },
-  "updated": { "__type__": "timestamp" },
-  "name": { "__type__": "string", "__maximum__": 32 },
-  "options": {
-    "__array__": "unique",
-    "__type__": "string",
-    "__options__": [ "option1", "option2", "option3" ],
-    "__sql__": { "json": true }
   }
 }
 ```
 
-### auto_primary
+#### auto_primary
 Defaults to `true`, which makes sense if [`primary`](#primary) is also left as
 its default of **_id**. This also assumes `_id` is some sort of type that can
 have an auto generated value. The only `Node` types that really make any sense
-are, **int**, **tuuid**, **tuuid4**, **uint**, **uuid**, and **uuid4**. In the
-case of **int** and **uint** `rest_mysql` uses the `AUTO_INCREMENT` feature, for
-the others it uses a combination of MySQL variables and calling `UUID()`. Keep
-in mind, that for UUID's you will need to call `UUID()` yourself if you bypass
-`rest_mysql` in any way to insert new records, you may also have to replace
-dashes and unhex as well if the [`__sql__.binary`](#__sql__binary) is set.
+are, **int**, **tuuid**, **tuuid4**, **uint**, **uuid**, and **uuid4**.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+In the case of **int** and **uint** `rest_mysql` uses the `AUTO_INCREMENT`
+feature
+
+For **tuuid**, **tuuid4**, **uuid**, and **uuid4**, it uses a combination of
+MySQL variables and calling `UUID()`. Keep in mind, that for UUID's you will
+need to call `UUID()` yourself if you bypass `rest_mysql` in any way to insert
+new records. If you also use the [`__sql__.binary`](#__sql__binary) flag you
+also have to replace dashes and unhex as well.
+
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### changes
+#### changes
 Defaults to `false`.
 
 Changes is used to create a separate `[table]_changes` table in the same
@@ -109,8 +103,8 @@ For example, up above we had set
     "changes": [ "user" ],
 ```
 which means at any [`create`](#record-create), [`save`](#record-save), or
-[`delete`](#record-delete) the user will be forced, by an exception, to pass
-along a `dict` with the `user` key set.
+[`delete`](#record-delete) the user will be forced to pass along a `dict` with
+the `user` key set.
 
 ```python
 if not my_instance.create(
@@ -121,23 +115,23 @@ Now we can not only keep track of changes, we can also see who made them. In
 fact we'll know who created and potentially who deleted the record. Never again
 will data, or a data trail, be missing.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### charset
+#### charset
 Defaults to **utf8mb4**, set it to whatever valid charset your server allows.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### collate
+#### collate
 Defaults to **utf8mb4_bin**, set it to whatever valid collate your server allows
 with the chosen [`charset`](#charset).
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-## create
+#### create
 Due to an issue in python 2.7 that may or may no longer exist, JSON files
 converted at runtime might not have the same order of keys in objects as their
 original file. This meant that columns ended up being created in a completely
@@ -149,38 +143,38 @@ be created in.
 NOTE: Whether the primary key is stated in `create` or not makes no difference,
 as the primay key will always be the first column in the table.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### db
+#### db
 This is the name of the database schema your table will be created in and
 accessed from. It default's to **test**.
 
 If [`changes`](#changes) is set, the corresponding table will also be created in
 this db.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### engine
+#### engine
 Defaults to **InnoDB**, set it to whatever valid engine your server allows.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### host
+#### host
 Defaults to **records**. Corresponds to a section in `config.mysql.hosts` with
 sql server connection information. See [Module Configuration](#module-configuration)
 for more info.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### indexes
+#### indexes
 Defaults to `{}`. Used to create indexes beyond the primary key. `indexes` Has 4
 valid formats.
 
-#### single column index
+##### single column index
 ```json
   "column_name": null
 ```
@@ -189,7 +183,7 @@ becomes
   index `column_name` (`column_name`)
 ```
 
-#### multi column index
+##### multi column index
 ```json
   "index_name": [ "column_name", "other_name" ]
 ```
@@ -198,7 +192,7 @@ becomes
   index `index_name` (`column_name`, `other_name`)
 ```
 
-#### specific single column index
+##### specific single column index
 Allows **fulltext**, **index**, **spatial**, and **unique**
 ```json
   "column_name": { "fulltext": null }
@@ -208,7 +202,7 @@ becomes
   fulltext `column_name` (`column_name`)
 ```
 
-#### specific multi column index
+##### specific multi column index
 Allows **fulltext**, **index**, **spatial**, and **unique**
 ```json
   "index_name": {
@@ -220,17 +214,17 @@ becomes
   unique `index_name` (`column_name`, `other_name`)
 ```
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### table
+#### table
 Defaults to the name of the `Tree`, but can be overwritten to whatever valid
 table name you can use with your server.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### primary
+#### primary
 Defaults to **_id**. This is the column or columns which will comprise the primary
 key of the table. To set it to a single column, pass a string
 ```json
@@ -245,22 +239,22 @@ To have no primary key on the table, set it to `false`
     "primary": false
 ```
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### rev_field
+#### rev_field
 Defaults to **_rev**, meaningless if [`revisions`](#revisions) is `false`.
 
 Set to the name of the column you want to save the revision value in. Whatever
 column you choose must be able to store at minimum a 34 character string. That
-length increases by one for each digit added to the revisions. Meaning revision
-strings 1 to 9 are 34 characters, 10 to 99 are 35 characters, 100 to 999
-are 36, and so on. 
+length increases by one for each digit added to the revisions. Meaning revisions
+1 to 9 are 34 characters, 10 to 99 are 35 characters, 100 to 999 are 36, and so
+on.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-### revisions
+#### revisions
 Defaults to `false`. If set to `true` any attempt to [`save`](#record-save) a
 record first checks if the revision string passed to `save` matches the one in
 the database. Not matching means changes have occurred to the record between the
@@ -272,10 +266,10 @@ This flag is not used often due to the fact that `rest_mysql` only saves changes
 in fields and not entire records, but in some cases the information might be so
 sensitive that we can't risk any change being lost.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [table configuration](#table-configuration) ]
 
-## Column configuration
+### Column configuration
 Where it can, `rest_mysql` directly translates `config` `Node` types to SQL
 types.\
 For example
@@ -289,7 +283,7 @@ becomes
 Other time's it's not as simple, so `rest_mysql` relies on some other settings
 to decide.
 
-### __minimum\_\_
+#### __minimum\_\_
 In one edge case, where a string `Node`'s `__minimum__` is the same value as
 the `__maximum__`, it triggers the use of `char` where it would normally be
 `varchar`.\
@@ -305,21 +299,17 @@ becomes
   `pass_code` char(5) not null
 ```
 
-Most of the time `rest_mysql` leaves it to you to optimize how you see fit, but
-this one case it only seems logical to default to `char` and force the user to
-set [`__sql__.type`](#__sql__type)
-
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [column configuration](#column-configuration) ]
 
-### __maximum\_\_
-In some cases, like strings, we don't need to explicitly set the
-[type](#__sql__type) if the `Node` already has a maximum valid value. In these
-cases `rest_mysql` can calculate the column width using the maximum.
+#### __maximum\_\_
+In some cases we don't need to explicitly set the [type](#__sql__type) if the
+`Node` already has a maximum valid value. In these cases `rest_mysql` can
+calculate the column width using the maximum.
 
-#### base64 and string
-If no [type](#__sql__type) is explicitely set, `rest_mysql` will require the maximum
-value in order to calculate the column width. For example.
+##### base64 and string
+If no [type](#__sql__type) is explicitely set, `rest_mysql` will require the
+maximum value in order to calculate the column width. For example.
 ```json
   "name": {
     "__type__": "string",
@@ -363,7 +353,7 @@ becomes
   `description` varchar(65534) not null
 ```
 
-#### price
+##### price
 Prices are stored as decimals to avoid floating point errors. This requires
 knowing the maximum value to be stored in order to know the max characters that
 can be put into the column in the table.\
@@ -371,7 +361,7 @@ For example
 ```json
   "amount": {
     "__type__": "price",
-	"__maximum__": "10000.00"
+    "__maximum__": "10000.00"
   }
 ```
 would translate to
@@ -382,7 +372,7 @@ Where as
 ```json
   "amount": {
     "__type__": "price",
-	"__maximum__": "9999.99"
+    "__maximum__": "9999.99"
   }
 ```
 would translate to
@@ -390,10 +380,10 @@ would translate to
   `amount` decimal(6,2) not null
 ```
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [column configuration](#column-configuration) ]
 
-### __optional\_\_
+#### __optional\_\_
 If the `__optional__` flag is set to `true`, then it's assumed the column is
 allowed to be set to `NULL`.\
 When we take the original example
@@ -408,7 +398,7 @@ We see that adding `__optional__`
 ```json
   "count": {
     "__type__": "uint",
-	"__optional__": true
+    "__optional__": true
   }
 ```
 removes "not null"
@@ -416,17 +406,17 @@ removes "not null"
   `count` integer unsigned
 ```
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [column configuration](#column-configuration) ]
 
-### __options\_\_
+#### __options\_\_
 When string types have `__options__`, those options are used to create an `enum`
 instead of a `varchar`.\
 For example
 ```json
   "language": {
     "__type__": "string",
-	"__options__": [ "javascript", "python", "c++" ]
+    "__options__": [ "javascript", "python", "c++" ]
   }
 ```
 becomes
@@ -434,13 +424,13 @@ becomes
   `language` enum('javascript', 'python', 'c++') not null
 ```
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [column configuration](#column-configuration) ]
 
-### __sql\_\_.binary
-For the tuuid, tuuid4, uuid, and uuid4 types, we can add the `binary` flag so
-that instead of using `char(32)` or `char(36)` we can use `binary(16)` saving
-considerable space, especially on any indexes.\
+#### __sql\_\_.binary
+For the **tuuid**, **tuuid4**, **uuid**, and **uuid4** types, we can add the
+`binary` flag so that instead of `char(32)` or `char(36)` we use `binary(16)`,
+saving considerable space on any indexes.\
 For example
 ```json
   "_id": {
@@ -456,10 +446,10 @@ This won't affect the way you search or store data, `rest_mysql` will take care
 of the conversion and you get the benefit of a smaller database without giving
 up the benefits of unique keys.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [column configuration](#column-configuration) ]
 
-### __sql\_\_.json
+#### __sql\_\_.json
 In some cases we want to store complex data in tables, but we don't have any
 use for indexing or even filtering by that data so there's no real reason for
 sub-tables and joins. In this case we can use `define-oc`'s `Array`, `Hash`,
@@ -492,7 +482,46 @@ So now we can set
 ```
 and not have to worry about the fact this isn't valid in an SQL table.
 
-[ [top](#rest_mysql) / [contents](#contents) /
+NOTE: while `rest_mysql` will take care of converting the object to and from
+JSON, it is not clever enough to know when you change something below the
+parent's name. If you need to change a value in the table that's store as JSON,
+you either need to set the entire value, or set `replace` when calling
+[`Record.save`](#record-save)
+
+BAD!
+```python
+from my_record import MyRecord
+record = MyRecord.get('some_id')
+record['title_by_locale']['en-CA'] = 'Good morning!'
+record.save()
+```
+Here `rest_mysql` won't be notified `title_by_locale` changed, and so the call
+to `save()` will return `False` here because no other columns are changed.
+However if we are changing multiple columns, `save()` can still return `True`
+even though `title_by_locale` won't have been updated in the DB.
+
+Avoid hard to track bugs and always set JSON columns at their top level. Use
+`combine` if you have to.
+
+```python
+from tools import combine
+from my_record import MyRecord
+record = MyRecord.get('some_id')
+record['title_by_locale'] = combine(
+  record['title_by_locale'], {
+    'en-CA': 'Good morning!'
+  }
+)
+```
+Or just replace the value altogether if you can
+```python
+record['title_by_locale'] = {
+  'en-CA': 'Good morning!',
+  'fr-CA': 'Bonjour à tous!'
+}
+```
+
+[ [top](#rest_mysql) / [contents](#contents) / [define](#define) /
 [column configuration](#column-configuration) ]
 
 ### __sql\_\_.opts
@@ -502,14 +531,14 @@ For example, if we had timestamps created at record creation and update
 ```json
   "created": {
     "__type__": "timestamp",
-	"__optional__": true,
+    "__optional__": true,
     "__sql__": {
       "opts": "not null default CURRENT_TIMESTAMP"
     }
   },
   "updated": {
     "__type__": "timestamp",
-	"__optional__": true,
+    "__optional__": true,
     "__sql__": {
       "opts": "not null default CURRENT_TIMESTAMP on update CURRENT_TIMESTAMP"
     }
@@ -543,8 +572,8 @@ For example
     "__sql__": { "type": "varchar(32)" }
   },
   "description": {
-	"__type__": "string",
-	"__sql__": { "type": "mediumtext" }
+    "__type__": "string",
+    "__sql__": { "type": "mediumtext" }
   }
 ```
 becomes
@@ -560,8 +589,8 @@ to set `__sql__.type`. Not doing so will cause an exception.
   "percent": {
     "__type__": "decimal",
     "__minimum__": "0",
-	"__maximum__": "100",
-	"__sql__": { "type": "decimal(6,3)" }
+    "__maximum__": "100",
+    "__sql__": { "type": "decimal(6,3)" }
 }
 ```
 becomes
@@ -601,3 +630,172 @@ becomes
 
 [ [top](#rest_mysql) / [contents](#contents) /
 [column configuration](#column-configuration) ]
+
+## Using
+
+### Everything in one file / dict
+If you don't care what info you store in the JSON, or there is no JSON and you
+only use the Tree for server side validation, you can just put everything into
+one object / dict and load it as is.
+
+`my_record.json`
+```json
+{
+  "__name__": "my_record",
+  "_id": {
+    "__type__": "tuuid",
+    "__optional__": true,
+    "__sql__": {
+      "binary": true
+    }
+  },
+  "_created": {
+    "__type__": "timestamp",
+    "__optional__": true,
+    "__sql__": {
+      "opts": "default current_timestamp"
+    }
+  },
+  "name": {
+    "__type__": "string",
+    "__maximum__": 32
+  },
+  "options": {
+    "__array__": "unique",
+    "__type__": "string",
+    "__options__": [
+      "option1",
+      "option2",
+      "option3"
+    ],
+    "__sql__": {
+      "json": true
+    }
+  },
+  "__sql__": {
+    "collate": "utf8mb4_0900_ai_ci",
+    "create": [
+      "_created",
+      "name",
+      "options"
+    ],
+    "db": "my_db",
+    "indexes": {
+      "name": {
+        "unique": null
+      }
+    }
+  }
+}
+```
+
+`my_record.py`
+```python
+from define import Tree
+from rest_mysql import Record
+class MyRecord(Record):
+  _conf = Record.generate_config(
+    Tree.from_file('my_record.json')
+  )
+  def config(cls):
+    return cls._conf
+```
+
+[ [top](#rest_mysql) / [contents](#contents) / [using](#using) ]
+
+### Separate define from mysql
+If you're sharing your files with the UI side, it's good practice not to put
+the SQL settings in the shared file. Instead we can keep the define file clean,
+and use the built in `extend` argument of all constructors and the from_file
+method, for just this purpose.
+
+`my_record.json`
+```json
+{
+  "__name__": "my_record",
+  "_id": {
+    "__type__": "tuuid",
+    "__optional__": true
+  },
+  "_created": {
+    "__type__": "timestamp",
+    "__optional__": true
+  },
+  "name": {
+    "__type__": "string",
+    "__maximum__": 32
+  },
+  "options": {
+    "__array__": "unique",
+    "__type__": "string",
+    "__options__": [
+      "option1",
+      "option2",
+      "option3"
+    ]
+  }
+}
+```
+
+`my_record.py`
+```python
+from define import Tree
+from rest_mysql import Record
+class MyRecord(Record):
+  _conf = Record.generate_config(
+    Tree.from_file('my_record.json', {
+      '_id': { '__sql__': {
+        'binary': True }
+      },
+      '_created': { '__sql__': {
+        'opts': 'default current_timestamp'
+      } },
+      'options': { '__sql__': {
+        'json': True
+      } },
+      '__sql__': {
+        'collate': 'utf8mb4_0900_ai_ci',
+        'create': [ '_created', 'name', 'options' ],
+        'db': 'my_db',
+        'indexes': {
+          'name': { 'unique': null }
+        }
+      }
+    })
+  )
+  def config(cls):
+    return cls._conf
+```
+
+[ [top](#rest_mysql) / [contents](#contents) / [using](#using) ]
+
+### Accessing and manipulating records
+
+```python
+from sys import exit
+from my_record import MyRecord
+record = MyRecord({
+  'name': 'Phoenix',
+  'options': [ 'option1', 'option3' ]
+}).create(changes)
+
+if not record.create():
+  exit(1)
+
+record2 = MyRecord(
+  MyRecord.get(
+    record['_id'],
+    raw = [ 'name', 'options' ]
+  )
+)
+record2['name'] = 'copy_of_%s' % record2['name']
+if not record2.create():
+  exit(1)
+
+records = MyRecord.filter({
+  'name': { 'like': '%Phonix' }
+}, orderby = 'name')
+
+for o in records:
+  o.delete()
+```
