@@ -11,6 +11,7 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2018-11-11"
 
 # Ouroboros imports
+from define import Tree
 from tools import clone, combine, merge
 import jsonb
 
@@ -799,7 +800,11 @@ class Record(abc.ABC):
 		return None
 
 	@classmethod
-	def generate_config(cls, tree, special = 'db', override = None):
+	def generate_config(cls,
+		tree: Tree,
+		special: str = 'db',
+		override = None
+	):
 		"""Generate Config
 
 		Generates record specific config based on the Format-OC tree passed
@@ -818,9 +823,9 @@ class Record(abc.ABC):
 			'auto_primary': True,
 			'changes': False,
 			'db': 'test',
-			'host': 'primary',
+			'host': 'records',
 			'indexes': {},
-			'table': 'table',
+			'table': tree.name,
 			'primary': '_id',
 			'rev_field': '_rev',
 			'revisions': False,
