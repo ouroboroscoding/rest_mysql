@@ -5,7 +5,7 @@ with open('README.md', 'r') as oF:
 
 setup(
 	name='rest_mysql',
-	version='1.2.0',
+	version='1.2.1',
 	description='Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to newer librairies. Has since been updated far beyond Rest-OC.',
 	long_description=long_description,
 	long_description_content_type='text/markdown',
@@ -17,10 +17,11 @@ setup(
 	author='Chris Nasr - Ouroboros Coding Inc.',
 	author_email='chris@ouroboroscoding.com',
 	license='MIT',
-	packages=['rest_mysql'],
+	packages=[ 'rest_mysql' ],
 	python_requires='>=3.10',
 	install_requires=[
 		'arrow>=1.3.0,<1.4',
+		'config-oc>=1.1.0,<1.2',
 		'define-oc>=1.0.5,<1.1',
 		'json-fix>=1.0.0,<1.1',
 		'jsonb>=1.0.0,<1.1',

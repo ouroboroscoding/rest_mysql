@@ -11,6 +11,7 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2020-02-12"
 
 # Ouroboros imports
+import config
 from define import Parent
 from tools import clone, evaluate
 import jsonb
@@ -30,8 +31,8 @@ import pymysql
 # Module imports
 from . import Record_Base
 
-# List of available hosts
-__mdHosts = {}
+# List of charsets by host
+__mdCharsets = {}
 
 # List of available connection
 __mdConnections = {}
@@ -41,7 +42,6 @@ MAX_RETRIES = 3
 
 # Backwards compatibility and simplicity
 DuplicateException = Record_Base.DuplicateException
-RecordException = Record_Base.RecordException
 RevisionException = Record_Base.RevisionException
 
 # Duplicate record regex
@@ -127,25 +127,16 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 	if host in __mdConnections:
 		return __mdConnections[host]
 
-	# If no such host has been added
-	if host not in __mdHosts:
-		raise ValueError('no such host "%s"' % str(host))
-
-	# Get the config
-	dConf = __mdHosts[host]
+	# Look for it in config
+	dConf = config.mysql.hosts[host]({
+		'host': 'localhost',
+		'port': 3306,
+		'charset': 'utf8mb4'
+	})
 
 	# Create a new connection
 	try:
-		oCon = pymysql.connect(**__mdHosts[host])
-
-		# Turn autocommit on
-		#oCon.autocommit(True)
-
-		# Change conversions
-		conv = oCon.decoders.copy()
-		for k in conv:
-			if k in [10,11,12]: conv[k] = str
-		oCon.decoders = conv
+		oCon = pymysql.connect(**dConf)
 
 	# Check for errors
 	except pymysql.err.OperationalError as e:
@@ -161,6 +152,15 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 		else:
 			sleep(1)
 			return _connection(host, errcnt)
+
+	# Change conversions
+	conv = oCon.decoders.copy()
+	for k in conv:
+		if k in [10,11,12]: conv[k] = str
+	oCon.decoders = conv
+
+	# Store the charset
+	__mdCharsets[host] = dConf['charset']
 
 	# Store the connection and return it
 	__mdConnections[host] = oCon
@@ -194,7 +194,7 @@ def _cursor(host: str, dict_cur: bool = False) -> list:
 			oCursor = oCon.cursor()
 
 		# Make sure we're on the requested charset
-		oCursor.execute('SET NAMES %s' % __mdHosts[host]['charset'])
+		oCursor.execute('SET NAMES %s' % __mdCharsets[host])
 
 	# If there's any exception whatsoever
 	except:
@@ -253,7 +253,8 @@ class _wcursor(object):
 def add_host(name: str, info: dict, update: bool = False):
 	"""Add Host
 
-	Add a host that can be used by Records
+	DEPRECATED. No longer does anything and is not needed. Host connections are
+	now created as required and the details are pulled directly from config.
 
 	Arguments:
 		name (str): The name that will be used to fetch the host credentials
@@ -263,22 +264,10 @@ def add_host(name: str, info: dict, update: bool = False):
 	Returns:
 		bool
 	"""
-
-	# If the info isn't already stored, or we want to overwrite it
-	if name not in __mdHosts or update:
-
-		# Add default charset if it wasn't passed
-		if 'charset' not in info:
-			info['charset'] = 'utf8'
-
-		# Store the info
-		__mdHosts[name] = info
-
-		# Return OK
-		return True
-
-	# Nothing to do, not OK
-	return False
+	print(
+		'rest_mysql.Record_MySQL.add_host is DEPRECATED and should no longer ' \
+		'be used.\nEventually this warning will become an error.'
+	)
 
 def db_create(
 	name: str,
@@ -451,7 +440,7 @@ class Commands(object):
 				# Init return
 				iRet = 0
 
-				# Go through each statment and execute it
+				# Go through each statement and execute it
 				for s in sql:
 					iRet += oCursor.execute(s)
 
@@ -524,7 +513,7 @@ class Commands(object):
 			print('\n----------------------------------------')
 			print('Unknown Error in Record_MySQL.Commands.execute')
 			print('host = ' + host)
-			print('sql = ' + str(s))
+			print('sql = ' + str(sql))
 			print('exception = ' + str(e.__class__.__name__))
 			print('args = ' + ', '.join([str(s) for s in e.args]))
 
@@ -3440,8 +3429,8 @@ class Record(Record_Base.Record):
 				', '.join(lFields),
 				', '.join(lIndexes),
 				'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-				'charset' in dStruct and dStruct['charset'] or 'utf8',
-				'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+				'charset' in dStruct and dStruct['charset'] or 'utf8mb4',
+				'collate' in dStruct and dStruct['collate'] or 'utf8mb4_bin'
 			)
 		]
 
@@ -3461,8 +3450,8 @@ class Record(Record_Base.Record):
 					', '.join(dChanges['fields']),
 					dChanges['key'],
 					'engine' in dStruct and dStruct['engine'] or 'InnoDB',
-					'charset' in dStruct and dStruct['charset'] or 'utf8',
-					'collate' in dStruct and dStruct['collate'] or 'utf8_bin'
+					'charset' in dStruct and dStruct['charset'] or 'utf8mb4',
+					'collate' in dStruct and dStruct['collate'] or 'utf8mb4_bin'
 				)
 			)
 

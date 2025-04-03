@@ -11,6 +11,7 @@ __email__		= "chris@ouroboroscoding.com"
 __created__		= "2018-11-11"
 
 # Ouroboros imports
+from define import Tree
 from tools import clone, combine, merge
 import jsonb
 
@@ -95,13 +96,6 @@ class DuplicateException(Exception):
 	"""DuplicateException class
 
 	Used for raising issues with duplicate records
-	"""
-	pass
-
-class RecordException(Exception):
-	"""RecordException class
-
-	Used for raising issues with the underlying definition of the record
 	"""
 	pass
 
@@ -568,7 +562,7 @@ class Record(abc.ABC):
 		# If the field is not valid for the record
 		if field not in self._dStruct['tree']:
 			raise ValueError([
-				[ '%s.%s' % (self._dStruct['tree'], field), 'unknown' ]
+				[ '%s.%s' % (self._dStruct['tree'].name, field), 'unknown' ]
 			])
 
 		# If the field hasn't changed
@@ -799,7 +793,11 @@ class Record(abc.ABC):
 		return None
 
 	@classmethod
-	def generate_config(cls, tree, special = 'db', override = None):
+	def generate_config(cls,
+		tree: Tree,
+		special: str = 'db',
+		override = None
+	):
 		"""Generate Config
 
 		Generates record specific config based on the Format-OC tree passed
@@ -818,9 +816,9 @@ class Record(abc.ABC):
 			'auto_primary': True,
 			'changes': False,
 			'db': 'test',
-			'host': 'primary',
+			'host': 'records',
 			'indexes': {},
-			'table': 'table',
+			'table': tree.name,
 			'primary': '_id',
 			'rev_field': '_rev',
 			'revisions': False,
