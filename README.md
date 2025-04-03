@@ -1,19 +1,26 @@
 # rest_mysql
 [![pypi version](https://img.shields.io/pypi/v/rest_mysql.svg)](https://pypi.org/project/rest_mysql) ![MIT License](https://img.shields.io/pypi/l/rest_mysql.svg)
 
-Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to newer librairies.
+Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to
+newer librairies. Since forking off of Rest-OC numerous improvements and bug
+fixes have been done.
 
-# Requires
-rest_mysql requires python 3.10 or higher
+See [Releases](https://github.com/ouroboroscoding/rest_mysql/blob/main/releases.md)
+for changes from release to release.
+
+[Full Documentation](https://github.com/ouroboroscoding/rest_mysql/blob/main/documentation.md)
 
 ## Install
 
-```bash
-pip install rest_mysql
+### Requires
+rest_mysql requires python 3.10 or higher
+
+### Install via pip
+```console
+foo@bar:~$ pip install rest_mysql
 ```
 
-## Using
-
+## Updating from Rest-OC
 Instead of pulling Record_MySQL from RestOC as we did in the past, change any
 references to rest_mysql
 
@@ -31,7 +38,7 @@ from rest_mysql.Record_MySQL import db_create, Record
 from rest_mysql.Record_Base import register_type
 ```
 
-## UUID and UUIDv4
+## Binary UUID and UUIDv4
 
 If you're using `uuid` or `uuid4` [define](https://pypi.org/project/define-oc/)
 types and you run into problems with UUID_TO_BIN and BIN_TO_UUID, you will need
@@ -40,10 +47,9 @@ to install the functions, or an alias
 ### Note
 
 Before continuing, I would suggest switching to `tuuid` or `tuuid4` as these
-represent trimmed UUIDs, or dashless UUIDs, which can be turned to binary and
-back without the use of UUID_TO_BIN or BIN_TO_UUID. If you absolutely must have
-full UUIDs, then choose from the below server types to continue fixing the
-issue.
+represent trimmed UUIDs, which can be turned to binary and back without the use
+of UUID_TO_BIN or BIN_TO_UUID. If you absolutely must have full UUIDs, then
+choose from the below server types to continue fixing the issue.
 
 ### MySQL
 
