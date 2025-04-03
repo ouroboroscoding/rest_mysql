@@ -1,5 +1,9 @@
 # rest_mysql releases
 
+## 1.2.1
+- Made Record_MySQL.add_host a DEPRECATED method, will be removed in future versions.
+- Server host info is now pulled directly from `config.mysql.hosts` and no other setup is required to get up and running with `rest_mysql`.
+
 ## 1.2.0
 - Updated `define-oc` to get access to `tuuid` and `tuuid4`
 - Fixed a bug that happened after deleting records with complex primary keys.
