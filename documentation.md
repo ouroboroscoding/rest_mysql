@@ -12,6 +12,7 @@ fixes have been done. See [releases](releases.md) for more info.
 - [Table Configuration](#table-configuration)
 - [Column Configuration](#column-configuration)
 - [Using](#using)
+- [Exceptions](#exceptions)
 
 ## Install
 
@@ -703,7 +704,7 @@ class MyRecord(Record):
 
 [ [top](#rest_mysql) / [contents](#contents) / [using](#using) ]
 
-### Separate define from mysql
+### Separate define and mysql settings
 If you're sharing your files with the UI side, it's good practice not to put
 the SQL settings in the shared file. Instead we can keep the define file clean,
 and use the built in `extend` argument of all constructors and the from_file
@@ -799,3 +800,69 @@ records = MyRecord.filter({
 for o in records:
   o.delete()
 ```
+
+## Record_MySQL
+
+### db_create
+
+### db_drop
+
+### verbose
+
+### Commands
+
+#### escape
+
+#### execute
+
+#### insert
+
+#### select
+
+## Record
+
+### class methods
+add_changes, count, create_many, create_now, delete_get, escape, exists, filter,
+generate_changes, generate_config, get, get_changes, keys, process_record,
+process_field, process_value, search, struct, table_create, table_drop,
+table_name, triggers_create, triggers_drop, triggers_recreate, update_field,
+uuid
+
+### instance methods
+changed, changes, create, delete, field_delete, field_get, field_set,
+fields_set, record, save
+
+## Exceptions
+`rest_mysql` has two `Exception` types, [`DuplicateException`](#duplicateexception)
+and [`RevisionException`](#revisionexception).
+
+### DuplicateException
+Raised when any `create` or `save` call results in a duplicate key error from
+MySQL. `arg[0]` is the key that's been duplicated, and `arg[1]` is the name of
+the primary key or unique index.
+```python
+from rest_mysql import DuplicateException
+from my_record import MyRecord
+try:
+  o = MyRecord({ """ some data """ })
+  o.create()
+except DuplicateException as e:
+  print('Index "%s" already contains "%s"' % (e.args[1], e.args[0]))
+```
+
+[ [top](#rest_mysql) / [contents](#contents) / [exceptions](#exceptions) ]
+
+### RevisionException
+Raised when someone attempts to save to a record using an old revision key.
+`arg[0]` is the primary key of the record.
+```python
+from rest_mysql import RevisionException
+from my_record import MyRecord
+try:
+  o = MyRecord({ """ some old data """ })
+  o.save()
+except RevisionException as e:
+  print('Record "%s" has been updated. Please refresh your data.' % e.args[0])
+```
+
+[ [top](#rest_mysql) / [contents](#contents) / [exceptions](#exceptions) ]
