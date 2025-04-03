@@ -99,13 +99,6 @@ class DuplicateException(Exception):
 	"""
 	pass
 
-class RecordException(Exception):
-	"""RecordException class
-
-	Used for raising issues with the underlying definition of the record
-	"""
-	pass
-
 class RevisionException(Exception):
 	"""Revision Exception
 
@@ -569,7 +562,7 @@ class Record(abc.ABC):
 		# If the field is not valid for the record
 		if field not in self._dStruct['tree']:
 			raise ValueError([
-				[ '%s.%s' % (self._dStruct['tree'], field), 'unknown' ]
+				[ '%s.%s' % (self._dStruct['tree'].name, field), 'unknown' ]
 			])
 
 		# If the field hasn't changed

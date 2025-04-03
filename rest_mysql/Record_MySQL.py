@@ -42,7 +42,6 @@ MAX_RETRIES = 3
 
 # Backwards compatibility and simplicity
 DuplicateException = Record_Base.DuplicateException
-RecordException = Record_Base.RecordException
 RevisionException = Record_Base.RevisionException
 
 # Duplicate record regex
@@ -441,7 +440,7 @@ class Commands(object):
 				# Init return
 				iRet = 0
 
-				# Go through each statment and execute it
+				# Go through each statement and execute it
 				for s in sql:
 					iRet += oCursor.execute(s)
 
@@ -514,7 +513,7 @@ class Commands(object):
 			print('\n----------------------------------------')
 			print('Unknown Error in Record_MySQL.Commands.execute')
 			print('host = ' + host)
-			print('sql = ' + str(s))
+			print('sql = ' + str(sql))
 			print('exception = ' + str(e.__class__.__name__))
 			print('args = ' + ', '.join([str(s) for s in e.args]))
 
