@@ -746,8 +746,8 @@ class MyRecord(Record):
   _conf = Record.generate_config(
     Tree.from_file('my_record.json', {
       '_id': { '__sql__': {
-        'binary': True }
-      },
+        'binary': True
+      } },
       '_created': { '__sql__': {
         'opts': 'default current_timestamp'
       } },
@@ -794,7 +794,7 @@ if not record2.create():
   exit(1)
 
 records = MyRecord.filter({
-  'name': { 'like': '%Phonix' }
+  'name': { 'like': '%Phoenix' }
 }, orderby = 'name')
 
 for o in records:
