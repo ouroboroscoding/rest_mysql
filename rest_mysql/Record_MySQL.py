@@ -2287,7 +2287,7 @@ class Record(Record_Base.Record):
 
 				# If it's json or bool type
 				sType = tree[k].type()
-				if sType in [ 'json', 'bool' ]:
+				if sType == 'bool':
 
 					# Add it to the list
 					dConfig['to_process'][k] = sType

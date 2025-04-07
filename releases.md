@@ -1,5 +1,8 @@
 # rest_mysql releases
 
+## 1.2.2
+- Fixed a bug where `Node` `json` types were being decoded as if they were `Parent`, `Hash`, or `Array` `json` types instead of just being returned as the expected JSON encoded string.
+
 ## 1.2.1
 - Made Record_MySQL.add_host a DEPRECATED method, will be removed in future versions.
 - Server host info is now pulled directly from `config.mysql.hosts` and no other setup is required to get up and running with `rest_mysql`.
