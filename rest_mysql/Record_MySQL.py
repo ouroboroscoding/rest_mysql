@@ -931,7 +931,7 @@ class Record(Record_Base.Record):
 					'"%s" is not a known type to Record_MySQL')
 
 		# Else, if it's an Array, Hash, or Parent
-		elif sClass in [ 'Array', 'Hash', 'Parent' ]:
+		elif sClass in [ 'Array', 'Hash', 'Options', 'Parent' ]:
 
 			# Get the sql section
 			dSQL = struct['tree'][node].special('sql')
@@ -1861,7 +1861,7 @@ class Record(Record_Base.Record):
 					return "'%s'" % Commands.escape(struct['host'], value)
 
 			# Else, if it's a Parent node
-			elif sClass in ['Array', 'Hash', 'Parent']:
+			elif sClass in ['Array', 'Hash', 'Options', 'Parent']:
 
 				# If it's in the 'to_process' section
 				if node in struct['to_process']:
@@ -2339,7 +2339,7 @@ class Record(Record_Base.Record):
 								]
 
 			# Else, if it's an object/dict type
-			elif sClass in [ 'Array', 'Hash', 'Parent' ]:
+			elif sClass in [ 'Array', 'Hash', 'Options', 'Parent' ]:
 
 				# If it has an SQL section
 				dSQL = tree[k].special('sql')
