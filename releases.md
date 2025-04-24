@@ -1,5 +1,8 @@
 # rest_mysql releases
 
+## 1.2.3
+- Added `Option` to the list of available `define_oc` types that can be converted to JSON.
+
 ## 1.2.2
 - Fixed a bug where `Node` `json` types were being decoded as if they were `Parent`, `Hash`, or `Array` `json` types instead of just being returned as the expected JSON encoded string.
 
@@ -8,7 +11,7 @@
 - Server host info is now pulled directly from `config.mysql.hosts` and no other setup is required to get up and running with `rest_mysql`.
 
 ## 1.2.0
-- Updated `define-oc` to get access to `tuuid` and `tuuid4`
+- Updated `define_oc` to get access to `tuuid` and `tuuid4`
 - Fixed a bug that happened after deleting records with complex primary keys.
 - Added `__sql__.binary` flag for `uuid`, `uuid4`, `tuuid`, and `tuuid4` to store the values in binary format without changing how you interact with them.
 
