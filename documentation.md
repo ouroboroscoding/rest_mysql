@@ -454,8 +454,8 @@ up the benefits of unique keys.
 In some cases we want to store complex data in tables, but we don't have any
 use for indexing or even filtering by that data so there's no real reason for
 sub-tables and joins. In this case we can use `define-oc`'s `Array`, `Hash`,
-and `Parent` types while still maintaining a flat table if we use the `json`
-flag.\
+`Option`, and `Parent` types while still maintaining a flat table if we use the
+`json` flag.\
 For example
 ```json
   "title_by_locale": {

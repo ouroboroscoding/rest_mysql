@@ -5,7 +5,7 @@ with open('README.md', 'r') as oF:
 
 setup(
 	name='rest_mysql',
-	version='1.2.2',
+	version='1.2.3',
 	description='Stand alone version of Record_MySQL from Rest-OC to facilitate updating code to newer librairies. Has since been updated far beyond Rest-OC.',
 	long_description=long_description,
 	long_description_content_type='text/markdown',
