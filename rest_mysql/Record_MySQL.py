@@ -3456,10 +3456,7 @@ class Record(Record_Base.Record):
 			)
 
 		# Create the table(s) and triggers
-		Commands.execute(dStruct['host'], lSQL)
-
-		# Return OK
-		return True
+		return Commands.execute(dStruct['host'], lSQL)
 
 	@classmethod
 	def table_drop(cls, custom: dict = {}) -> bool:
