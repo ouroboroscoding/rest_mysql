@@ -18,6 +18,7 @@ import jsonb
 
 # Python imports
 from enum import IntEnum
+from functools import partial
 import re
 import sys
 from time import sleep
@@ -25,8 +26,10 @@ from typing import List, Literal as PyLiteral
 
 # Pip imports
 import arrow
+from dbutils.pooled_db import PooledDB
 import json_fix
 import pymysql
+from pymysql.converters import escape_string
 
 # Module imports
 from . import Record_Base
@@ -35,7 +38,7 @@ from . import Record_Base
 __mdCharsets = {}
 
 # List of available connection
-__mdConnections = {}
+__mdPools = {}
 
 # defines
 MAX_RETRIES = 3
@@ -86,11 +89,11 @@ def _clear_connection(host: str):
 	"""
 
 	# If we have the connection
-	if host in __mdConnections:
+	if host in __mdPools:
 
 		# Try to close the connection
 		try:
-			__mdConnections[host].close()
+			__mdPools[host].close()
 
 			# Sleep for a second
 			sleep(1)
@@ -104,39 +107,24 @@ def _clear_connection(host: str):
 			print('args = ' + ', '.join([str(s) for s in e.args]))
 
 		# Delete the connection
-		del __mdConnections[host]
+		del __mdPools[host]
 
-def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
-	"""Connection
+def _connect(conf, errcnt: int = 0):
+	"""Connect
 
-	Returns a connection to the given host
+	Used to generate the individual connections in the pool
 
-	Args:
-		host (str): The name of the host to connect to
+	Arguments:
+		conf (dict): The configuration for the connection
 		errcnt (uint): The current error count
-
-	Raises:
-		ConnectionError
-		ValueError
 
 	Returns:
 		Connection
 	"""
 
-	# If we already have the connection, return it
-	if host in __mdConnections:
-		return __mdConnections[host]
-
-	# Look for it in config
-	dConf = config.mysql.hosts[host]({
-		'host': 'localhost',
-		'port': 3306,
-		'charset': 'utf8mb4'
-	})
-
 	# Create a new connection
 	try:
-		oCon = pymysql.connect(**dConf)
+		oCon = pymysql.connect(**conf)
 
 	# Check for errors
 	except pymysql.err.OperationalError as e:
@@ -151,7 +139,7 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 		# Else just sleep for a second and try again
 		else:
 			sleep(1)
-			return _connection(host, errcnt)
+			return _connect(conf, errcnt)
 
 	# Change conversions
 	conv = oCon.decoders.copy()
@@ -159,12 +147,52 @@ def _connection(host: str, errcnt: int = 0) -> pymysql.Connection:
 		if k in [10,11,12]: conv[k] = str
 	oCon.decoders = conv
 
+	# Return the connection
+	return oCon
+
+def _connection(host: str) -> pymysql.Connection:
+	"""Connection
+
+	Returns a connection to the given host
+
+	Args:
+		host (str): The name of the host to connect to
+
+
+	Raises:
+		ConnectionError
+		ValueError
+
+	Returns:
+		Connection
+	"""
+
+	# If we already have the connection, return it
+	if host in __mdPools:
+		return __mdPools[host].connection()
+
+	# Look for it in config
+	dConf = config.mysql.hosts[host]({
+		'host': 'localhost',
+		'port': 3306,
+		'charset': 'utf8mb4',
+		'maxconnections': 1
+	})
+
+	# Pop off max connections
+	iMaxConnections = dConf.pop('maxconnections')
+
+	oPool = PooledDB(
+		creator = partial(_connect, dConf),
+		maxconnections = iMaxConnections
+	)
+
 	# Store the charset
 	__mdCharsets[host] = dConf['charset']
 
-	# Store the connection and return it
-	__mdConnections[host] = oCon
-	return oCon
+	# Store the pool and return a connection from it
+	__mdPools[host] = oPool
+	return oPool.connection()
 
 def _cursor(host: str, dict_cur: bool = False) -> list:
 	"""Cursor
@@ -247,8 +275,9 @@ class _wcursor(object):
 		else:
 			self.con.commit()
 
-		# Close the cursor
+		# Close the cursor and connection (because it returns it to the pool)
 		self.cursor.close()
+		self.con.close()
 
 def add_host(name: str, info: dict, update: bool = False):
 	"""Add Host
@@ -355,52 +384,6 @@ class Commands(object):
 
 	# Output SQL for debugging?
 	_verbose: bool = False
-
-	@classmethod
-	def escape(cls, host: str, value = any) -> str:
-		"""Escape
-
-		Used to escape string values for the DB
-
-		Args:
-			host (str): The name of the connection to escape for
-			value (str): The value to escape
-
-		Raises:
-			Exception
-
-		Returns:
-			str
-		"""
-
-		# Get a connection to the host
-		oCon = _connection(host)
-
-		# Get the value
-		try:
-			sRet = oCon.escape_string(value)
-
-		# Else there's an operational problem so close the connection and
-		#	restart
-		except pymysql.err.OperationalError as e:
-
-			# Clear the connection and try again
-			_clear_connection(host)
-			return cls.escape(host, value)
-
-		except Exception as e:
-			print('\n----------------------------------------')
-			print('Unknown Error in Record_MySQL.Commands.escape')
-			print('host = ' + host)
-			print('value = ' + str(value))
-			print('exception = ' + str(e.__class__.__name__))
-			print('args = ' + ', '.join([str(s) for s in e.args]))
-
-			# Rethrow
-			raise e
-
-		# Return the escaped string
-		return sRet
 
 	@classmethod
 	def execute(cls, host: str, sql: str | List[str], errcnt: int = 0) -> int:
@@ -1349,10 +1332,7 @@ class Record(Record_Base.Record):
 						struct['table'],
 						sKeyFields,
 						sKeyValues,
-						Commands.escape(
-							struct['host'],
-							jsonb.encode(dChanges)
-						)
+						escape_string(jsonb.encode(dChanges))
 					)
 
 			# Create the changes record
@@ -1648,10 +1628,7 @@ class Record(Record_Base.Record):
 						self._dStruct['table'],
 						sKeyFields,
 						sKeyValues,
-						Commands.escape(
-							self._dStruct['host'],
-							jsonb.encode(dChanges)
-						)
+						escape_string(jsonb.encode(dChanges))
 					)
 
 			# Insert the changes
@@ -1858,7 +1835,7 @@ class Record(Record_Base.Record):
 
 				# Else it's a standard escape
 				else:
-					return "'%s'" % Commands.escape(struct['host'], value)
+					return "'%s'" % escape_string(value)
 
 			# Else, if it's a Parent node
 			elif sClass in ['Array', 'Hash', 'Options', 'Parent']:
@@ -1889,10 +1866,7 @@ class Record(Record_Base.Record):
 
 					# If it's json, encode it, then escape it at the host level
 					elif struct['to_process'][node] == 'json':
-						return "'%s'" % Commands.escape(
-							struct['host'],
-							jsonb.encode(value)
-						)
+						return "'%s'" % escape_string(jsonb.encode(value))
 
 			# Else, any other type isn't implemented
 			else:
@@ -3081,10 +3055,7 @@ class Record(Record_Base.Record):
 						self._dStruct['table'],
 						sPrimaryKey,
 						sPrimaryValue,
-						Commands.escape(
-							self._dStruct['host'],
-							jsonb.encode(dChanges)
-						)
+						escape_string(jsonb.encode(dChanges))
 					)
 
 			# Create the changes record
@@ -3456,10 +3427,7 @@ class Record(Record_Base.Record):
 			)
 
 		# Create the table(s) and triggers
-		Commands.execute(dStruct['host'], lSQL)
-
-		# Return OK
-		return True
+		return Commands.execute(dStruct['host'], lSQL)
 
 	@classmethod
 	def table_drop(cls, custom: dict = {}) -> bool:

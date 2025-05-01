@@ -16,8 +16,8 @@ for changes from release to release.
 rest_mysql requires python 3.10 or higher
 
 ### Install via pip
-```console
-foo@bar:~$ pip install rest_mysql
+```bash
+pip install rest_mysql
 ```
 
 ## Updating from Rest-OC
