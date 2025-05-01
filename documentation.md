@@ -485,7 +485,7 @@ and not have to worry about the fact this isn't valid in an SQL table.
 
 NOTE: while `rest_mysql` will take care of converting the object to and from
 JSON, it is not clever enough to know when you change something below the
-parent's name. If you need to change a value in the table that's store as JSON,
+parent's name. If you need to change a value in the table that's stored as JSON,
 you either need to set the entire value, or set `replace` when calling
 [`Record.save`](#record-save)
 
@@ -746,8 +746,8 @@ class MyRecord(Record):
   _conf = Record.generate_config(
     Tree.from_file('my_record.json', {
       '_id': { '__sql__': {
-        'binary': True }
-      },
+        'binary': True
+      } },
       '_created': { '__sql__': {
         'opts': 'default current_timestamp'
       } },
