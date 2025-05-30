@@ -1,5 +1,8 @@
 # rest_mysql releases
 
+## 1.2.5
+- Fixed a bug where some POINTs were being mangled due to floating point issues. POINTs are now saved in a text format so that precision and formatting is maintained.
+
 ## 1.2.4
 - Switched from a single connection per host, to a pool of connections per host. The optional `maxconnections` argument on each host in `config.mysql.hosts` can be used to set exactly how many connections are available in the pool in order to support numerous workers using the module. By default `maxconnections` is 1, which provides the same behaviour as before.
 
