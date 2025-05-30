@@ -17,6 +17,7 @@ from tools import clone, evaluate
 import jsonb
 
 # Python imports
+from decimal import Decimal
 from enum import IntEnum
 from functools import partial
 import re
@@ -1858,10 +1859,18 @@ class Record(Record_Base.Record):
 									'must contain a "lat" and "long" value'
 								)
 
+							# Convert the values to Decimals to make sure
+							#	they're valid
+							dPoint = {}
+							for s in [ 'lat', 'long' ]:
+								try:
+									dPoint[s] = Decimal(value[s])
+								except ValueError:
+									dPoint[s] = '0.0'
+
 							# Return it as an SQL POINT
-							return 'POINT(%s, %s)' % (
-								str(float(value['lat'])),
-								str(float(value['long']))
+							return 'ST_GeomFromText(\'POINT(%s %s)\', 4326)' % (
+								dPoint['lat'], dPoint['long']
 							)
 
 					# If it's json, encode it, then escape it at the host level
@@ -2678,7 +2687,10 @@ class Record(Record_Base.Record):
 		# Else, if it's a point
 		elif type == 'point':
 			oM = POINT_REGEX.match(value)
-			return { 'lat': oM.group(1), 'long': oM.group(2) }
+			try:
+				return { 'lat': oM.group(1), 'long': oM.group(2) }
+			except AttributeError:
+				return { 'lat': '0.0', 'long': '0.0' }
 
 		# Else, return as is
 		else:
