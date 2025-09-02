@@ -824,13 +824,13 @@ for o in records:
 ### class methods
 add_changes, count, create_many, create_now, delete_get, escape, exists, filter,
 generate_changes, generate_config, get, get_changes, keys, process_record,
-process_field, process_value, search, struct, table_create, table_drop,
-table_name, triggers_create, triggers_drop, triggers_recreate, update_field,
-uuid
+process_field, process_value, process_select, search, struct, table_create,
+table_drop, table_name, triggers_create, triggers_drop, triggers_recreate,
+update_field, uuid
 
 ### instance methods
 changed, changes, create, delete, field_delete, field_get, field_set,
-fields_set, record, save
+fields_set, provide_select, record, save
 
 ## Exceptions
 `rest_mysql` has two `Exception` types, [`DuplicateException`](#duplicateexception)
