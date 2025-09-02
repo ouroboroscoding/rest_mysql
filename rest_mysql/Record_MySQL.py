@@ -920,20 +920,27 @@ class Record(Record_Base.Record):
 			# Get the sql section
 			dSQL = struct['tree'][node].special('sql')
 
-			# If it's a parent and it's marked as a point
-			if 'type' in dSQL and dSQL['type'] == 'point' and \
-				sClass == 'Parent':
-				return 'point'
+			# If there's no data
+			if dSQL:
 
-			# If it doesn't exist, or there's no json flag
-			if not dSQL or 'json' not in dSQL or not dSQL['json']:
-				raise TypeError(node,
-					'Record_MySQL can not process Define %s nodes without ' \
-					'the json flag set, or the type set to "point"' % sClass
-				)
+				# If it's a parent and it's marked as a point
+				if 'type' in dSQL and dSQL['type'] == 'point' \
+					and sClass == 'Parent':
 
-			# Return the type as text so we can store the JSON
-			return 'text'
+					# Return the point type
+					return 'point'
+
+				# If it doesn't exist, or there's no json flag
+				if 'json' in dSQL or dSQL['json']:
+
+					# Return the type as text so we can store the JSON
+					return 'text'
+
+			# Raise an error
+			raise TypeError(node,
+				'Record_MySQL can not process Define %s nodes without ' \
+				'the json flag set, or the type set to "point"' % sClass
+			)
 
 		# Else, any other type isn't implemented
 		else:
@@ -2006,7 +2013,7 @@ class Record(Record_Base.Record):
 	# filter static method
 	@classmethod
 	def filter(cls,
-		fields: dict,
+		fields: dict | List[dict],
 		raw: str | List[str] | PyLiteral[True] | None = None,
 		distinct: bool = False,
 		orderby: str | List[str] | List[List[str]] | None = None,
@@ -2018,8 +2025,9 @@ class Record(Record_Base.Record):
 		Finds records based on the specific fields and values passed
 
 		Arguments:
-			fields (dict): A dictionary of field names to the values they \
-				should match
+			fields (dict | dict[]): One or more dictionaries of field names to \
+				the values they should match, dict values are AND'ed together, \
+				and each of the list is OR'ed
 			raw (bool|str|list): Optional, default returns a list of Records, \
 				set to True to return a list of dicts, pass a list to return \
 				a list of dicts with only the fields provided, or pass a \
@@ -2718,18 +2726,24 @@ class Record(Record_Base.Record):
 				record[sField] = cls.process_field(sType, record[sField])
 
 	@classmethod
-	def process_select(cls, struct: dict, select: List[str]) -> List[str]:
+	def process_select(cls,
+		struct: dict,
+		select: List[str],
+		table: str = None
+	) -> str:
 		"""Process Select
 
-		Goes through select fields and renames them based on their type so \
-		that we get the expected values
+		Goes through select fields and renames them based on their type so that
+		we get the expected values. Returns a single string with all the fields
+		passed.
 
 		Arguments:
 			struct (dict): The structure of the instance
 			select (str[]): The list of select fields to convert
+			table (str): Optional table to add to the fields, useful for joins
 
 		Returns:
-			str[]
+			str
 		"""
 
 		# Init the new list
@@ -2747,25 +2761,35 @@ class Record(Record_Base.Record):
 
 				# If it's a point
 				if struct['to_rename'][f] == 'point':
-					lRet.append('ST_AsText(`%s`) as `%s`' % ( f, f ))
+					lRet.append( table \
+						and f'ST_AsText(`{table}`.`{f}`) as `{f}`' \
+						or f'ST_AsText(`{f}`) as `{f}`'
+					)
 
 				# Else, if it's a timestamp
 				elif struct['to_rename'][f] == 'timestamp':
-					lRet.append('UNIX_TIMESTAMP(`%s`) as `%s`' % ( f, f ))
+					lRet.append( table \
+						and f'UNIX_TIMESTAMP(`{table}`.`{f}`) as `{f}`' \
+						or f'UNIX_TIMESTAMP(`{f}`) as `{f}`'
+					)
 
 				# Else, if it's a trimmed uuid
 				elif struct['to_rename'][f] in [ 'tuuid', 'tuuid4' ]:
-					lRet.append('LOWER(HEX(`%s`)) as `%s`' % ( f, f ))
+					lRet.append( table \
+						and f'LOWER(HEX(`{table}`.`{f}`)) as `{f}`' \
+						or f'LOWER(HEX(`{f}`)) as `{f}`'
+					)
 
 				# Else, if it's a uuid
 				elif struct['to_rename'][f] in [ 'uuid', 'uuid4' ]:
-					lRet.append('`%s`.BIN_TO_UUID(`%s`) as `%s`' % (
-						struct['db'], f, f
-					))
+					lRet.append( table \
+						and f'`{struct["db"]}`.BIN_TO_UUID(`{table}`.`{f}`) as `{f}`' \
+						or f'`{struct["db"]}`.BIN_TO_UUID(`{f}`) as `{f}`'
+					)
 
 			# Else, add it as is
 			else:
-				lRet.append('`%s`' % f)
+				lRet.append(table and f'`{table}`.`{f}`' or f'`{f}`')
 
 		# Return the new list
 		return ', '.join(lRet)
@@ -2876,6 +2900,62 @@ class Record(Record_Base.Record):
 
 		# Return the processed value
 		return sRet
+
+	@classmethod
+	def provide_select(cls,
+		fields: List[str] = None,
+		without: List[str] = None,
+		table: bool = False,
+		custom: dict = {}
+	) -> str:
+		"""Provide Select
+
+		Uses the class instance to generate a string of fields useable for a
+		SELECT statement so that custom methods don't need to worry about field
+		changes when generate custom SQL.
+
+		Arguments:
+			fields (str[]): Optional list of fields to use if you only want
+				some. Ignore to get all fields associated with the Record
+			without (str[] | '_'): Optional list of field not to include,
+				helpful to include all fields minus some to avoid needing to
+				make changes if new fields are added. Set to '_' instead of a
+				list to remove all fields prefixed by the underscore
+			table (bool): Optional, set to true to include the table as a prefix
+				for the field names. i.e. `table`.`field` instead of just
+				`field`
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Raises:
+			ValueError if both `fields` and `without` are set
+
+		Returns:
+			str
+		"""
+
+		# Get the struct
+		dS = cls.struct(custom)
+
+		# If fields and without is set
+		if fields and without:
+			raise ValueError('Can not set both fields and without')
+
+		# Else, if fields is set
+		elif fields:
+			lFields = fields
+
+		# Else, regardless if without is set, we can use keys to get all fields
+		else:
+			lFields = cls.keys(without)
+
+		# Pass the info to the static method
+		return cls.process_select(
+			dS,
+			lFields,
+			table and dS['table'] or None
+		)
 
 	@classmethod
 	def remove(cls,

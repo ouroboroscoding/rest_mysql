@@ -663,10 +663,13 @@ class Record(abc.ABC):
 		Finds records based on the specific fields and values passed
 
 		Arguments:
-			fields (dict): A dictionary of field names to the values they \
-				should match
-			raw (bool|list): Return raw data (dict) for all or a set list of \
-				fields
+			fields (dict | dict[]): One or more dictionaries of field names to \
+				the values they should match, dict values are AND'ed together, \
+				and each of the list is OR'ed
+			raw (bool|str|list): Optional, default returns a list of Records, \
+				set to True to return a list of dicts, pass a list to return \
+				a list of dicts with only the fields provided, or pass a \
+				single string to return a list of just those values
 			distinct (bool): Only return distinct data
 			orderby (str|str[]): A field or fields to order the results by
 			limit (int|tuple): The limit and possible starting point
