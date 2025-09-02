@@ -1,5 +1,9 @@
 # rest_mysql releases
 
+## 1.2.6
+- Added an optional argument to the Record_MySQL.process_select() method to allow passing a table name that will be prefixed to field names, i.e. `table`.`field` instead of just `field`
+- Added a new method to Record_MySQL called provide_select() which uses the data already defined in child classes to call Record_MySQL.process_select() and generate a string of SELECT fields for custom SQL queries.
+
 ## 1.2.5
 - Fixed a bug where some POINTs were being mangled due to floating point issues. POINTs are now saved in a text format so that precision and formatting is maintained.
 
