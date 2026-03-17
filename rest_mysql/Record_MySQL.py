@@ -2905,7 +2905,7 @@ class Record(Record_Base.Record):
 	def provide_select(cls,
 		fields: List[str] = None,
 		without: List[str] = None,
-		table: bool = False,
+		table: bool | str = False,
 		custom: dict = {}
 	) -> str:
 		"""Provide Select
@@ -2921,9 +2921,10 @@ class Record(Record_Base.Record):
 				helpful to include all fields minus some to avoid needing to
 				make changes if new fields are added. Set to '_' instead of a
 				list to remove all fields prefixed by the underscore
-			table (bool): Optional, set to true to include the table as a prefix
-				for the field names. i.e. `table`.`field` instead of just
-				`field`
+			table (bool | str): Optional, set to true to include the table as a
+				prefix for the field names. i.e. `table`.`field` instead of just
+				`field`. Set it to a string to override the table name, i.e.
+				`t`.`field`
 			custom (dict): Custom Host and DB info
 				'host' the name of the host to get/set data on
 				'append' optional postfix for dynamic DBs
@@ -2950,12 +2951,13 @@ class Record(Record_Base.Record):
 		else:
 			lFields = cls.keys(without)
 
+		# Figure out if we need a table or not
+		mTable = None
+		if table:
+			mTable = table is True and dS['table'] or table
+
 		# Pass the info to the static method
-		return cls.process_select(
-			dS,
-			lFields,
-			table and dS['table'] or None
-		)
+		return cls.process_select(dS, lFields, mTable)
 
 	@classmethod
 	def remove(cls,
