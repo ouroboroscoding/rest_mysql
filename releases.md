@@ -1,5 +1,8 @@
 # rest_mysql releases
 
+## 1.3.0
+- Refactored Record_MySQL.provide_fields to be passed a struct rather than custom so that cls.struct() does not need to be called multiple times during the process of generating custom SQL
+
 ## 1.2.7
 - Modified the MySQL_Record.provide_select() method to allow for passing an alternate table name instead of just `True` or `False`. This way if we are providing fields for a join that provides an alias, we can use that alias to build the full field names.
 
