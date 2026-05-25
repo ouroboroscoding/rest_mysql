@@ -2906,7 +2906,7 @@ class Record(Record_Base.Record):
 		fields: List[str] = None,
 		without: List[str] = None,
 		table: bool | str = False,
-		custom: dict = {}
+		struct: dict = None
 	) -> str:
 		"""Provide Select
 
@@ -2925,9 +2925,7 @@ class Record(Record_Base.Record):
 				prefix for the field names. i.e. `table`.`field` instead of just
 				`field`. Set it to a string to override the table name, i.e.
 				`t`.`field`
-			custom (dict): Custom Host and DB info
-				'host' the name of the host to get/set data on
-				'append' optional postfix for dynamic DBs
+			struct (dict): The structure of the Record
 
 		Raises:
 			ValueError if both `fields` and `without` are set
@@ -2936,8 +2934,11 @@ class Record(Record_Base.Record):
 			str
 		"""
 
-		# Get the struct
-		dS = cls.struct(custom)
+		# Store or generate the struct
+		if struct is None:
+			dS = cls.struct()
+		else:
+			dS = struct
 
 		# If fields and without is set
 		if fields and without:
