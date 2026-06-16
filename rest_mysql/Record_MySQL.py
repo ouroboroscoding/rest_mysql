@@ -3908,6 +3908,107 @@ class Record(Record_Base.Record):
 		return Commands.execute(dStruct['host'], sSQL)
 
 	@classmethod
+	def update_fields(cls,
+		fields: dict,
+		key: any | List[any] | None = None,
+		index: str | None = None,
+		filter: dict | None = None,
+		custom: dict = {}
+	) -> int:
+		"""Updated Field
+
+		Updates a specific field to the value for an ID, many IDs, or the \
+		entire table
+
+		Arguments:
+			fields (dict): The key value pairs of the fields to update
+			key (any): Optional ID(s) to filter by
+			index (str): Optional name of the index to use instead of primary
+			filter (dict): Optional filter list to decide what records get \
+				updated
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			uint -- Number of records altered
+		"""
+
+		# Don't allow index
+		if index is not None:
+			raise Exception(
+				'index not a valid argument in Record_MySQL.update_field'
+			)
+
+		# Fetch the record structure
+		dStruct = cls.struct(custom)
+
+		# If any of the fields don't exist the field doesn't exist
+		for k in fields:
+			if k not in dStruct['tree']:
+				raise ValueError('%s not a valid field' % k)
+
+		# Init the where fields
+		lWhere = []
+
+		# If the primary key was passed
+		if key is not None:
+
+			# If we have a complex primary
+			if dStruct['complex_primary']:
+				raise RuntimeError('key',
+					'`key` can not be used with complex primary keys. Use ' \
+					'`filter` instead'
+				)
+
+			# Add the primary to the where clause
+			lWhere.append('`%s` %s' % (
+				dStruct['primary'],
+				cls.process_value(dStruct, dStruct['primary'], key)
+			))
+
+		# If there's an additional filter
+		if filter:
+
+			# If we only have one
+			if isinstance(filter, dict):
+				lWhere.append(' AND '.join([
+					'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+					for n,v in filter.items()
+				]))
+
+			# If we have multiple
+			elif isinstance(filter, list):
+				lWhere.append('(%s)' % ') OR ('.join(
+					[ ' AND '.join([
+						'`%s` %s' % (n, cls.process_value(dStruct, n, v)) \
+						for n,v in d.items()
+					]) for d in filter ]
+				))
+
+			# Else, invalid filter
+			else:
+				raise ValueError('filter', 'must be a dict or dict[]')
+
+		# Generate the sets
+		lSets = [ ]
+		for k, v in fields.items():
+			lSets.append(f"`{k}` = {cls.escape(dStruct, k, v)}")
+
+		# Generate the SQL to update the field
+		sSQL = 'UPDATE `%s`.`%s` ' \
+				'SET %s ' \
+				'%s' % (
+			dStruct['db'],
+			dStruct['table'],
+			', '.join(lSets),
+			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
+		)
+
+		# Update all the records and return the number of rows changed
+		return Commands.execute(dStruct['host'], sSQL)
+
+	@classmethod
 	def uuid(cls, custom: dict = {}) -> str:
 		"""UUID
 

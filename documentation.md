@@ -826,7 +826,7 @@ add_changes, count, create_many, create_now, delete_get, escape, exists, filter,
 generate_changes, generate_config, get, get_changes, keys, process_record,
 process_field, process_value, process_select, search, struct, table_create,
 table_drop, table_name, triggers_create, triggers_drop, triggers_recreate,
-update_field, uuid
+update_field, updated_fields, uuid
 
 ### instance methods
 changed, changes, create, delete, field_delete, field_get, field_set,
