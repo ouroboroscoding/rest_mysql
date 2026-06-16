@@ -1101,6 +1101,31 @@ class Record(abc.ABC):
 
 	@classmethod
 	@abc.abstractmethod
+	def update_fields(cls,
+		fields: dict,
+		key = None,
+		index = None,
+		filter = None
+	):
+		"""Updated Field
+
+		Updates a specific field to the value for an ID, many IDs, or the \
+		entire table. Returns the number of records altered
+
+		Arguments:
+			fields (dict): The key value pairs of the fields to update
+			key (mixed): Optional ID(s) to filter by
+			index (str): Optional name of the index to use instead of primary
+			filter (dict): Optional filter list to decide what records get \
+				updated
+
+		Returns:
+			uint
+		"""
+		raise NotImplementedError('Must implement the "update_fields" method')
+
+	@classmethod
+	@abc.abstractmethod
 	def uuid(custom = {}):
 		"""UUID
 

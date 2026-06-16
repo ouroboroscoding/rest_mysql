@@ -1,5 +1,8 @@
 # rest_mysql releases
 
+## 1.3.1
+- Added `update_fields` method to update all fields passed to the same values based on the keys or filter.
+
 ## 1.3.0
 - Refactored Record_MySQL.provide_fields to be passed a struct rather than custom so that cls.struct() does not need to be called multiple times during the process of generating custom SQL
 
