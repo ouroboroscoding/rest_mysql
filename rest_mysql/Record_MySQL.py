@@ -38,10 +38,10 @@ from . import Record_Base
 from .Record_Base import Record
 
 # List of charsets by host
-__mdCharsets = {}
+__mdCharsets = { }
 
 # List of available connection
-__mdPools = {}
+__mdPools = { }
 
 # defines
 MAX_RETRIES = 3
@@ -696,14 +696,14 @@ class Commands(object):
 
 				# If we want a list of one field
 				elif seltype == ESelect.COLUMN:
-					mData = []
+					mData = [ ]
 					mTemp = oCursor.fetchall()
 					for i in mTemp:
 						mData.append(i[0])
 
 				# If we want a hash of the first field and the second
 				elif seltype == ESelect.HASH:
-					mData = {}
+					mData = { }
 					mTemp = oCursor.fetchall()
 					for n,v in mTemp:
 						mData[n] = v
@@ -718,7 +718,7 @@ class Commands(object):
 							'when using HASH_ROWS'
 						)
 
-					mData = {}
+					mData = { }
 					mTemp = oCursor.fetchall()
 
 					for o in mTemp:
@@ -1413,7 +1413,7 @@ class Record(Record_Base.Record):
 			)
 
 		# Create the list of fields
-		lFields = []
+		lFields = [ ]
 		for f in dStruct['tree'].keys():
 
 			# If it's not the primary key, or it is but it's not auto incrmented
@@ -1426,7 +1426,7 @@ class Record(Record_Base.Record):
 			lFields.append(dStruct['rev_field'])
 
 		# Initialise a list of records
-		lRecords = []
+		lRecords = [ ]
 
 		# Loop through the records
 		for o in records:
@@ -1436,7 +1436,7 @@ class Record(Record_Base.Record):
 				o._revision(True)
 
 			# Loop through the fields
-			lValues = []
+			lValues = [ ]
 			for f in lFields:
 
 				# If it's the primary, and auto_primary is a string
@@ -1585,7 +1585,7 @@ class Record(Record_Base.Record):
 		# Create the string of all fields and values but the primary if it's
 		#	auto incremented
 		bAutoPrimary = False
-		lTemp = [[], []]
+		lTemp = [[ ], [ ]]
 		for f in struct['tree'].keys():
 
 			# If it's the primary key with auto_primary on and the value isn't
@@ -2001,7 +2001,7 @@ class Record(Record_Base.Record):
 			)
 
 		# Init the where fields
-		lWhere = []
+		lWhere = [ ]
 
 		# If the primary key was passed
 		if key is not None:
@@ -2170,7 +2170,7 @@ class Record(Record_Base.Record):
 
 							# Convert the values to Decimals to make sure
 							#	they're valid
-							dPoint = {}
+							dPoint = { }
 							for s in [ 'lat', 'long' ]:
 								try:
 									dPoint[s] = Decimal(value[s])
@@ -2362,7 +2362,7 @@ class Record(Record_Base.Record):
 
 			# If there's no data, return an empty list
 			if not lRecords:
-				return []
+				return [ ]
 
 			# If we have any fields that need to be processed / decoded
 			if oSql.meta['to_process']:
@@ -2468,7 +2468,7 @@ class Record(Record_Base.Record):
 		)
 
 		# Go through each value
-		lWhere = []
+		lWhere = [ ]
 
 		# If we only have one
 		if isinstance(fields, dict):
@@ -2501,7 +2501,7 @@ class Record(Record_Base.Record):
 			if isinstance(orderby, (list, tuple)):
 
 				# Go through each field
-				lOrderBy = []
+				lOrderBy = [ ]
 				for i in orderby:
 					if isinstance(i, (list,tuple)):
 						lOrderBy.append('`%s` %s' % (i[0], i[1]))
@@ -2778,7 +2778,7 @@ class Record(Record_Base.Record):
 
 			# If there's no data, return an empty list
 			if not lRecords:
-				return []
+				return [ ]
 
 			# If we have any fields that need to be processed / decoded
 			if oSql.meta['to_process']:
@@ -2884,7 +2884,7 @@ class Record(Record_Base.Record):
 		)
 
 		# Init the where fields
-		lWhere = []
+		lWhere = [ ]
 
 		# If there's an id
 		if key is not None:
@@ -2941,7 +2941,7 @@ class Record(Record_Base.Record):
 			if isinstance(orderby, (list, tuple)):
 
 				# Go through each field
-				lOrderBy = []
+				lOrderBy = [ ]
 				for i in orderby:
 					if isinstance(i, (list,tuple)):
 						lOrderBy.append('`%s` %s' % (i[0], i[1]))
@@ -3064,7 +3064,7 @@ class Record(Record_Base.Record):
 			if isinstance(orderby, (list, tuple)):
 
 				# Go through each field
-				lOrderBy = []
+				lOrderBy = [ ]
 				for i in orderby:
 					if isinstance(i, (list,tuple)):
 						lOrderBy.append('`%s` %s' % (i[0], i[1]))
@@ -3172,7 +3172,7 @@ class Record(Record_Base.Record):
 		lRet = [ ]
 
 		# If we have no renames
-		if struct['to_rename'] == []:
+		if struct['to_rename'] == [ ]:
 			return ', '.join([ '`%s`' % f for f in select ])
 
 		# Step through all the select fields
@@ -3239,7 +3239,7 @@ class Record(Record_Base.Record):
 		if isinstance(value, ( list, tuple )):
 
 			# Build the list of values
-			lValues = []
+			lValues = [ ]
 			for i in value:
 				# If it's None
 				if i is None:
@@ -3281,7 +3281,7 @@ class Record(Record_Base.Record):
 				if isinstance(value['neq'], ( list, tuple )):
 
 					# Build the list of values
-					lValues = []
+					lValues = [ ]
 					for i in value['neq']:
 						# If it's None
 						if i is None:
@@ -3448,7 +3448,7 @@ class Record(Record_Base.Record):
 		self._dOldRecord = None
 
 		# Clear the changed fields flags
-		self._dChanged = {}
+		self._dChanged = { }
 
 		# Return OK
 		return True
@@ -3552,7 +3552,7 @@ class Record(Record_Base.Record):
 			dValues = { k:self._dRecord[k] for k in self._dChanged }
 
 		# Go through each value and create the pairs
-		lValues = []
+		lValues = [ ]
 		for f in dValues.keys():
 			if f != self._dStruct['primary'] or \
 				not self._dStruct['auto_primary']:
@@ -3659,7 +3659,7 @@ class Record(Record_Base.Record):
 		"""
 
 		# Init a new list of fields
-		dFields = {}
+		dFields = { }
 
 		# Go through each field passed
 		for k,d in fields.items():
@@ -3757,7 +3757,7 @@ class Record(Record_Base.Record):
 			)
 
 		# Init the list of fields
-		lFields = []
+		lFields = [ ]
 
 		# If we have a primary key
 		if dStruct['primary']:
@@ -3789,7 +3789,7 @@ class Record(Record_Base.Record):
 				if dStruct['changes']:
 					dChanges = {
 						'key': '`key` (`%s`)' % '`, `'.join(dStruct['primary']),
-						'fields': []
+						'fields': [ ]
 					}
 
 				# For code re-use later on
@@ -3816,7 +3816,7 @@ class Record(Record_Base.Record):
 				if dStruct['changes']:
 					dChanges = {
 						'key': '`key` (`%s`)' % dStruct['primary'],
-						'fields': []
+						'fields': [ ]
 					}
 
 				# For code re-use later on
@@ -3827,7 +3827,7 @@ class Record(Record_Base.Record):
 
 				# Get the sql special data for the primary
 				dSQL = dStruct['tree'][sKey].special(
-					'sql', default = {}
+					'sql', default = { }
 				)
 
 				# If it's a string
@@ -3862,7 +3862,7 @@ class Record(Record_Base.Record):
 		else:
 
 			# Init indexes
-			lIndexes = []
+			lIndexes = [ ]
 
 			# Get all child node keys
 			lNodeKeys = dStruct['tree'].keys()
@@ -4092,7 +4092,7 @@ class Record(Record_Base.Record):
 					)
 
 	@classmethod
-	def triggers_create(cls, return_sql = False, custom = {}):
+	def triggers_create(cls, return_sql = False, custom = { }):
 		"""Triggers Create
 
 		Creates the triggers associated with the record's table/collection/etc
@@ -4112,7 +4112,7 @@ class Record(Record_Base.Record):
 		"""
 
 		# Init generated SQL statements
-		lSQL = []
+		lSQL = [ ]
 
 		# If we have no struct
 		if not return_sql:
@@ -4164,7 +4164,7 @@ class Record(Record_Base.Record):
 		return True
 
 	@classmethod
-	def triggers_drop(cls, return_sql = False, custom = {}):
+	def triggers_drop(cls, return_sql = False, custom = { }):
 		"""Triggers Drop
 
 		Drops the triggers associated with the record's table/collection/etc
@@ -4184,7 +4184,7 @@ class Record(Record_Base.Record):
 		"""
 
 		# Init generated SQL statements
-		lSQL = []
+		lSQL = [ ]
 
 		# If we have no struct
 		if not return_sql:
@@ -4226,7 +4226,7 @@ class Record(Record_Base.Record):
 		return True
 
 	@classmethod
-	def triggers_recreate(cls, custom = {}):
+	def triggers_recreate(cls, custom = { }):
 		"""Triggers Re-Create
 
 		Drops the triggers associated with the record's table/collection/etc
@@ -4280,7 +4280,7 @@ class Record(Record_Base.Record):
 		filter: dict | None = None,
 		custom: dict = { }
 	) -> int:
-		"""Updated Field
+		"""Update Field
 
 		Updates a specific field to the value for an ID, many IDs, or the entire
 		table.
@@ -4306,6 +4306,39 @@ class Record(Record_Base.Record):
 				'index not a valid argument in Record_MySQL.update_field'
 			)
 
+		# Generate the SQL Data
+		oSql = cls.update_field_sql(field, value, key, filter, custom)
+
+		# Update all the records and return the number of rows changed
+		return Commands.execute(oSql.host, oSql.statements[0])
+
+	@classmethod
+	def update_field_sql(cls,
+		field: str,
+		value: any,
+		key: any | List[any] | None = None,
+		filter: dict | None = None,
+		custom: dict = { }
+	) -> SqlData:
+		"""Update Field SQL
+
+		Generates the SQL to update a specific field to the value for an ID,
+		many IDs, or the entire table.
+
+		Arguments:
+			field (str): The name of the field to update
+			value (any): The value to set the field to
+			key (any): Optional ID(s) to filter by
+			filter (dict): Optional filter list to decide what records get
+				updated
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			SqlData
+		"""
+
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
 
@@ -4314,7 +4347,7 @@ class Record(Record_Base.Record):
 			raise ValueError('%s not a valid field' % field)
 
 		# Init the where fields
-		lWhere = []
+		lWhere = [ ]
 
 		# If the primary key was passed
 		if key is not None:
@@ -4364,8 +4397,8 @@ class Record(Record_Base.Record):
 			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
 		)
 
-		# Update all the records and return the number of rows changed
-		return Commands.execute(dStruct['host'], sSQL)
+		# Return the SQL Data
+		return SqlData(dStruct['host'], [ sSQL ])
 
 	@classmethod
 	def update_fields(cls,
@@ -4375,9 +4408,9 @@ class Record(Record_Base.Record):
 		filter: dict | None = None,
 		custom: dict = { }
 	) -> int:
-		"""Updated Field
+		"""Update Fields
 
-		Updates a specific field to the value for an ID, many IDs, or the entire
+		Updates numerous fields to values for an ID, many IDs, or the entire
 		table.
 
 		Arguments:
@@ -4400,6 +4433,37 @@ class Record(Record_Base.Record):
 				'index not a valid argument in Record_MySQL.update_field'
 			)
 
+		# Generate the SQL Data
+		oSql = cls.update_fields_sql(fields, key, filter, custom)
+
+		# Update all the records and return the number of rows changed
+		return Commands.execute(oSql.host, oSql.statements[0])
+
+	@classmethod
+	def update_fields_sql(cls,
+		fields: dict,
+		key: any | List[any] | None = None,
+		filter: dict | None = None,
+		custom: dict = { }
+	) -> SqlData:
+		"""Update Fields SQL
+
+		Generates the SQL to update a specific field to the value for an ID,
+		many IDs, or the entire table.
+
+		Arguments:
+			fields (dict): The key value pairs of the fields to update
+			key (any): Optional ID(s) to filter by
+			filter (dict): Optional filter list to decide what records get
+				updated
+			custom (dict): Custom Host and DB info
+				'host' the name of the host to get/set data on
+				'append' optional postfix for dynamic DBs
+
+		Returns:
+			SqlData
+		"""
+
 		# Fetch the record structure
 		dStruct = cls.struct(custom)
 
@@ -4409,7 +4473,7 @@ class Record(Record_Base.Record):
 				raise ValueError('%s not a valid field' % k)
 
 		# Init the where fields
-		lWhere = []
+		lWhere = [ ]
 
 		# If the primary key was passed
 		if key is not None:
@@ -4465,8 +4529,8 @@ class Record(Record_Base.Record):
 			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
 		)
 
-		# Update all the records and return the number of rows changed
-		return Commands.execute(dStruct['host'], sSQL)
+		# Return the SQL Data
+		return SqlData(dStruct['host'], [ sSQL ])
 
 	@classmethod
 	def uuid(cls, custom: dict = { }) -> str:
