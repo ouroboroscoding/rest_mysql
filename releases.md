@@ -1,43 +1,71 @@
 # rest_mysql releases
 
+## 1.3.2
+- Added *_sql versions of all methods that select / update / delete records to
+allow for combining statements to do atomic changes. i.e. insert has insert_sql,
+delete has delete_sql, etc.
+
 ## 1.3.1
-- Added `update_fields` method to update all fields passed to the same values based on the keys or filter.
+- Added `update_fields` method to update all fields passed to the same values
+based on the keys or filter.
 
 ## 1.3.0
-- Refactored Record_MySQL.provide_fields to be passed a struct rather than custom so that cls.struct() does not need to be called multiple times during the process of generating custom SQL
+- Refactored Record_MySQL.provide_fields to be passed a struct rather than
+custom so that cls.struct() does not need to be called multiple times during the
+process of generating custom SQL
 
 ## 1.2.7
-- Modified the MySQL_Record.provide_select() method to allow for passing an alternate table name instead of just `True` or `False`. This way if we are providing fields for a join that provides an alias, we can use that alias to build the full field names.
+- Modified the MySQL_Record.provide_select() method to allow for passing an
+alternate table name instead of just `True` or `False`. This way if we are
+providing fields for a join that provides an alias, we can use that alias to
+build the full field names.
 
 ## 1.2.6
-- Added an optional argument to the Record_MySQL.process_select() method to allow passing a table name that will be prefixed to field names, i.e. `table`.`field` instead of just `field`
-- Added a new method to Record_MySQL called provide_select() which uses the data already defined in child classes to call Record_MySQL.process_select() and generate a string of SELECT fields for custom SQL queries.
+- Added an optional argument to the Record_MySQL.process_select() method to
+allow passing a table name that will be prefixed to field names, i.e.
+`table`.`field` instead of just `field`
+- Added a new method to Record_MySQL called provide_select() which uses the data
+already defined in child classes to call Record_MySQL.process_select() and
+generate a string of SELECT fields for custom SQL queries.
 
 ## 1.2.5
-- Fixed a bug where some POINTs were being mangled due to floating point issues. POINTs are now saved in a text format so that precision and formatting is maintained.
+- Fixed a bug where some POINTs were being mangled due to floating point issues.
+POINTs are now saved in a text format so that precision and formatting is
+maintained.
 
 ## 1.2.4
-- Switched from a single connection per host, to a pool of connections per host. The optional `maxconnections` argument on each host in `config.mysql.hosts` can be used to set exactly how many connections are available in the pool in order to support numerous workers using the module. By default `maxconnections` is 1, which provides the same behaviour as before.
+- Switched from a single connection per host, to a pool of connections per host.
+The optional `maxconnections` argument on each host in `config.mysql.hosts` can
+be used to set exactly how many connections are available in the pool in order
+to support numerous workers using the module. By default `maxconnections` is 1,
+which provides the same behaviour as before.
 
 ## 1.2.3
-- Added `Option` to the list of available `define_oc` types that can be converted to JSON.
+- Added `Option` to the list of available `define_oc` types that can be
+converted to JSON.
 
 ## 1.2.2
-- Fixed a bug where `Node` `json` types were being decoded as if they were `Parent`, `Hash`, or `Array` `json` types instead of just being returned as the expected JSON encoded string.
+- Fixed a bug where `Node` `json` types were being decoded as if they were
+`Parent`, `Hash`, or `Array` `json` types instead of just being returned as the
+expected JSON encoded string.
 
 ## 1.2.1
-- Made Record_MySQL.add_host a DEPRECATED method, will be removed in future versions.
-- Server host info is now pulled directly from `config.mysql.hosts` and no other setup is required to get up and running with `rest_mysql`.
+- Made Record_MySQL.add_host a DEPRECATED method, will be removed in future
+versions.
+- Server host info is now pulled directly from `config.mysql.hosts` and no other
+setup is required to get up and running with `rest_mysql`.
 
 ## 1.2.0
 - Updated `define_oc` to get access to `tuuid` and `tuuid4`
 - Fixed a bug that happened after deleting records with complex primary keys.
-- Added `__sql__.binary` flag for `uuid`, `uuid4`, `tuuid`, and `tuuid4` to store the values in binary format without changing how you interact with them.
+- Added `__sql__.binary` flag for `uuid`, `uuid4`, `tuuid`, and `tuuid4` to
+store the values in binary format without changing how you interact with them.
 
 ## 1.1.5
 - Now forcing of `__sql__.type` for 'decimal' fields.
 - Now forcing of `__sql__.type` for 'price' fields that have no maximum value.
-- Triggers can now be added to tables via the `triggers` section of the structure.
+- Triggers can now be added to tables via the `triggers` section of the
+structure.
 - Added `Record_Base.fields_set` method to set many fields at once.
 - You can now use complex primary keys by passing them as a list to `primary`.
 
@@ -48,7 +76,9 @@
 - Fix for 1.1.2 where commits were not being closed and tables were locking.
 
 ## 1.1.2
-- Removed auto-committing on every statements and left each commit to be closed when the cursor is. This allowed refactoring `Commands.exec` to accept lists of SQL statements which are all run as a single commit.
+- Removed auto-committing on every statements and left each commit to be closed
+when the cursor is. This allowed refactoring `Commands.exec` to accept lists of
+SQL statements which are all run as a single commit.
 
 ## 1.1.1
 - Added `Record_Base.keys()` class method.
@@ -62,7 +92,9 @@
 - Fixed a bug where the `level` value was being passed to `ignore_missing`.
 
 ## 1.0.1
-- Fixed a bug where 'ArrayNode' and 'HashNode' were still referenced instead of the new 'Array' and 'Hash' class types.
+- Fixed a bug where 'ArrayNode' and 'HashNode' were still referenced instead of
+the new 'Array' and 'Hash' class types.
 
 ## 1.0.0
-- Copied the **Record_Base** and **Record_MySQL** modules out of `REST-OC` and updated them to use `define-oc` and `tools-oc`.
+- Copied the **Record_Base** and **Record_MySQL** modules out of `REST-OC` and
+updated them to use `define-oc` and `tools-oc`.
