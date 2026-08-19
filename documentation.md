@@ -226,8 +226,8 @@ table name you can use with your server.
 [table configuration](#table-configuration) ]
 
 #### primary
-Defaults to **_id**. This is the column or columns which will comprise the primary
-key of the table. To set it to a single column, pass a string
+Defaults to **_id**. This is the column or columns which will comprise the
+primary key of the table. To set it to a single column, pass a string
 ```json
     "primary": "name"
 ```
@@ -822,15 +822,17 @@ for o in records:
 ## Record
 
 ### class methods
-add_changes, count, create_many, create_now, delete_get, escape, exists, filter,
-generate_changes, generate_config, get, get_changes, keys, process_record,
-process_field, process_value, process_select, search, struct, table_create,
-table_drop, table_name, triggers_create, triggers_drop, triggers_recreate,
-update_field, updated_fields, uuid
+add_changes, add_changes_sql, count, count_sql, create_many, create_many_sql,
+create_now, create_now_sql, delete_get, delete_get_sql, escape, exists, filter,
+filter_sql, generate_changes, generate_config, get, get_sql, get_changes,
+get_changes_sql, keys, process_record, process_field, process_value,
+process_select, search, struct, table_create, table_drop, table_name,
+triggers_create, triggers_drop, triggers_recreate, update_field,
+update_field_sql, updated_fields, update_fields_sql, uuid
 
 ### instance methods
-changed, changes, create, delete, field_delete, field_get, field_set,
-fields_set, provide_select, record, save
+changed, changes, create, create_sql, delete, delete_sql, field_delete,
+field_get, field_set, fields_set, provide_select, record, save, save_sql
 
 ## Exceptions
 `rest_mysql` has two `Exception` types, [`DuplicateException`](#duplicateexception)
