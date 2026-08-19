@@ -83,7 +83,7 @@ class Literal(object):
 		return self._text
 
 class SqlDataMeta(TypedDict, total = False):
-	auto_primary: bool
+	auto_primary: str
 	multi_fields: bool
 	multi_records: bool
 	to_process: dict
@@ -334,7 +334,7 @@ def db_create(
 	"""
 
 	# Generate the statement
-	sSQL = 'CREATE DATABASE IF NOT EXISTS `%s%s`' % (
+	sSQL = "CREATE DATABASE IF NOT EXISTS `%s%s`" % (
 		Record_Base.db_prepend(), name
 	)
 	if charset:
@@ -432,7 +432,6 @@ class Commands(object):
 
 				# If we got a str
 				if isinstance(sql, str):
-					s = sql
 					return oCursor.execute(sql)
 
 				# If it's not a list
@@ -458,7 +457,7 @@ class Commands(object):
 				'SQL error (%s): %s\n%s' % (
 					str(e.args[0]),
 					str(e.args[1]),
-					str(s)
+					str(sql)
 				)
 			)
 
@@ -1070,14 +1069,16 @@ class Record(Record_Base.Record):
 			sKeyValues = cls.escape(dStruct, dStruct['primary'], key)
 
 		# Generate the INSERT statement
-		sSQL = 'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) ' \
-				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')' % (
-					dStruct['db'],
-					dStruct['table'],
-					sKeyFields,
-					sKeyValues,
-					jsonb.encode(changes)
-				)
+		sSQL = (
+			"INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) "
+			"VALUES(%s, CURRENT_TIMESTAMP, '%s')" % (
+				dStruct['db'],
+				dStruct['table'],
+				sKeyFields,
+				sKeyValues,
+				jsonb.encode(changes)
+			)
+		)
 
 		# Return the SqlData
 		return SqlData(dStruct['host'], [ sSQL ])
@@ -1237,12 +1238,11 @@ class Record(Record_Base.Record):
 				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Build the statement
-		sSQL = 'SELECT COUNT(*) FROM `%s`.`%s` ' \
-				'%s ' % (
-					dStruct['db'],
-					dStruct['table'],
-					lWhere and 'WHERE %s' % ' AND '.join(lWhere) or ''
-				)
+		sSQL = "SELECT COUNT(*) FROM `%s`.`%s` %s " % (
+			dStruct['db'],
+			dStruct['table'],
+			lWhere and 'WHERE %s' % ' AND '.join(lWhere) or ''
+		)
 
 		# Return the SqlData
 		return SqlData(dStruct['host'], [ sSQL ])
@@ -1277,11 +1277,11 @@ class Record(Record_Base.Record):
 		# Call the shared method to generate the SQL
 		oSql = cls._create_sql(record, struct, conflict, changes)
 
-		# If we have a primary key
-		if oSql.meta['auto_primary']:
-
-			# Add the SELECT to get the ID
-			oSql.statements.append('SELECT @_ID')
+		# If we have an auto generated primary key
+		if oSql.meta.get('auto_primary', False):
+			oSql.statements.append(
+				f"SELECT {oSql.meta['auto_primary']} as `primary_key`"
+			)
 
 			# Run the statements then fetch the ID and store it
 			record[struct['primary']] = Commands.select(
@@ -1459,7 +1459,7 @@ class Record(Record_Base.Record):
 
 		# If we want to replace duplicate keys
 		if conflict == 'replace':
-			sUpdate = 'ON DUPLICATE KEY UPDATE %s' % ',\n'.join([
+			sUpdate = "ON DUPLICATE KEY UPDATE %s" % ',\n'.join([
 				"`%s` = VALUES(`%s`)" % (lFields[i], lFields[i])
 				for i in range(len(lFields))
 			])
@@ -1469,9 +1469,7 @@ class Record(Record_Base.Record):
 			sUpdate = ''
 
 		# Generate the INSERT statements
-		sSQL = 'INSERT %sINTO `%s`.`%s` (`%s`) ' \
-				'VALUES (%s) ' \
-				'%s' % (
+		sSQL = "INSERT %sINTO `%s`.`%s` (`%s`) VALUES (%s) %s" % (
 			(conflict == 'ignore' and 'IGNORE ' or ''),
 			dStruct['db'],
 			dStruct['table'],
@@ -1638,17 +1636,13 @@ class Record(Record_Base.Record):
 		del lTemp
 
 		# Generate the INSERT statement
-		sInsert = (
-			'INSERT %sINTO `%s`.`%s` (%s)\n'
-			' VALUES (%s)\n'
-			'%s' % (
-				(conflict == 'ignore' and 'IGNORE ' or ''),
-				struct['db'],
-				struct['table'],
-				sFields,
-				sValues,
-				sUpdate
-			)
+		sInsert = "INSERT %sINTO `%s`.`%s` (%s) VALUES (%s) %s" % (
+			(conflict == 'ignore' and 'IGNORE ' or ''),
+			struct['db'],
+			struct['table'],
+			sFields,
+			sValues,
+			sUpdate
 		)
 
 		# Init the return SQL
@@ -1663,7 +1657,7 @@ class Record(Record_Base.Record):
 				# Set the SQL variable to the requested value first and run the
 				#	insert
 				lSQL = [
-					f'SET @_ID = {struct['auto_primary_call'][0]}',
+					f"SET @_ID = {struct['auto_primary_call'][0]}",
 					sInsert
 				]
 
@@ -1674,7 +1668,7 @@ class Record(Record_Base.Record):
 				#	new ID
 				lSQL = [
 					sInsert,
-					f'SET @_ID = LAST_INSERT_ID()'
+					f"SET @_ID = LAST_INSERT_ID()"
 				]
 
 		# Else, the insert is the full SQL
@@ -1722,9 +1716,9 @@ class Record(Record_Base.Record):
 			# Generate and append the INSERT statement that only runs if a row
 			#	was changed
 			lSQL.append(
-				'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) '
-				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\') '
-				'IF ROW_COUNT() > 0' % (
+				"INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) "
+				"SELECT %s, CURRENT_TIMESTAMP, '%s' "
+				"WHERE ROW_COUNT() > 0" % (
 					struct['db'],
 					struct['table'],
 					sKeyFields,
@@ -1733,8 +1727,17 @@ class Record(Record_Base.Record):
 				)
 			)
 
+		# If we have a auto generated primary key
+		dMeta = { }
+		if bAutoPrimary:
+			dMeta['auto_primary'] = (
+				'auto_primary_call' in struct
+					and struct['auto_primary_call'][1]
+					or '@_ID'
+			)
+
 		# Return the SQL data
-		return SqlData(struct['host'], lSQL, { 'auto_primary': bAutoPrimary })
+		return SqlData(struct['host'], lSQL, dMeta)
 
 	def create_sql(self,
 		conflict: PyLiteral['error', 'ignore', 'replace'] = 'error',
@@ -1862,12 +1865,12 @@ class Record(Record_Base.Record):
 
 		# Generate the DELETE statement
 		lSQL = [
-			'DELETE FROM `%s`.`%s` WHERE %s' % (
+			"DELETE FROM `%s`.`%s` WHERE %s" % (
 				self._dStruct['db'],
 				self._dStruct['table'],
 				sWhere
 			),
-			'SET @_DELETED = ROW_COUNT()'
+			"SET @_DELETED = ROW_COUNT()"
 		]
 
 		# If changes are required
@@ -1909,9 +1912,9 @@ class Record(Record_Base.Record):
 
 			# Generate and append the INSERT statement
 			lSQL.append(
-				'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) '
-				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\')'
-				'IF @_DELETED > 0' % (
+				"INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) "
+				"SELECT %s, CURRENT_TIMESTAMP, '%s'"
+				"WHERE @_DELETED > 0" % (
 					self._dStruct['db'],
 					self._dStruct['table'],
 					sKeyFields,
@@ -2043,7 +2046,7 @@ class Record(Record_Base.Record):
 				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Build the delete statement
-		sSQL = 'DELETE FROM `%s`.`%s` %s' % (
+		sSQL = "DELETE FROM `%s`.`%s` %s" % (
 			dStruct['db'],
 			dStruct['table'],
 			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
@@ -2355,7 +2358,7 @@ class Record(Record_Base.Record):
 
 			# Get all the records
 			lRecords = Commands.select(
-				oSql.host['host'],
+				oSql.host,
 				oSql.statements[0],
 				oSql.meta['multi_fields'] and ESelect.ALL or ESelect.COLUMN
 			)
@@ -2537,17 +2540,15 @@ class Record(Record_Base.Record):
 				raise ValueError('limit', 'Invalid limit passed to filter')
 
 		# Build the statement
-		sSQL = 'SELECT %s%s FROM `%s`.`%s` ' \
-				'WHERE %s ' \
-				'%s %s' % (
-					distinct and 'DISTINCT ' or '',
-					sFields,
-					dStruct['db'],
-					dStruct['table'],
-					' AND '.join(lWhere),
-					sOrderBy,
-					sLimit
-				)
+		sSQL = "SELECT %s%s FROM `%s`.`%s` WHERE %s %s %s" % (
+			distinct and 'DISTINCT ' or '',
+			sFields,
+			dStruct['db'],
+			dStruct['table'],
+			' AND '.join(lWhere),
+			sOrderBy,
+			sLimit
+		)
 
 		# Return the SQL Data
 		return SqlData(dStruct['host'], [ sSQL ], {
@@ -2764,7 +2765,7 @@ class Record(Record_Base.Record):
 			raise TypeError('match not a valid argument in Record_MySQL.get')
 
 		# Generate the SQL Data
-		oSql = cls.get_sql(key, index, filter, distinct, orderby, limit, custom)
+		oSql = cls.get_sql(key, filter, raw, distinct, orderby, limit, custom)
 
 		# If we only want multiple records
 		if oSql.meta['multi_records']:
@@ -2973,17 +2974,15 @@ class Record(Record_Base.Record):
 					bMultiRecords = False
 
 		# Build the statement
-		sSQL = 'SELECT %s%s FROM `%s`.`%s` ' \
-				'%s ' \
-				'%s %s' % (
-					distinct and 'DISTINCT ' or '',
-					sFields,
-					dStruct['db'],
-					dStruct['table'],
-					lWhere and 'WHERE %s' % ' AND '.join(lWhere) or '',
-					sOrderBy,
-					sLimit
-				)
+		sSQL = "SELECT %s%s FROM `%s`.`%s` %s %s %s" % (
+			distinct and 'DISTINCT ' or '',
+			sFields,
+			dStruct['db'],
+			dStruct['table'],
+			lWhere and 'WHERE %s' % ' AND '.join(lWhere) or '',
+			sOrderBy,
+			sLimit
+		)
 
 		# Return the SQL Data
 		return SqlData(dStruct['host'], [ sSQL ], {
@@ -3077,16 +3076,18 @@ class Record(Record_Base.Record):
 				sOrderBy = 'ORDER BY `%s`' % orderby
 
 		# Generate the SELECT statement
-		sSQL = 'SELECT `%s`, `created`, `items` ' \
-				'FROM `%s`.`%s_changes` ' \
-				'WHERE `%s` %s ' \
-				'%s' % (
-			dStruct['primary'],
-			dStruct['db'],
-			dStruct['table'],
-			dStruct['primary'],
-			cls.process_value(dStruct, dStruct['primary'], key),
-			sOrderBy
+		sSQL = (
+			"SELECT `%s`, `created`, `items` "
+			"FROM `%s`.`%s_changes` "
+			"WHERE `%s` %s "
+			"%s" % (
+				dStruct['primary'],
+				dStruct['db'],
+				dStruct['table'],
+				dStruct['primary'],
+				cls.process_value(dStruct, dStruct['primary'], key),
+				sOrderBy
+			)
 		)
 
 		# Return the SQL Data
@@ -3518,7 +3519,7 @@ class Record(Record_Base.Record):
 				return False
 
 			# Use the primary key to fetch the record and return the rev
-			sSQL = 'SELECT `%s` FROM `%s`.`%s` WHERE %s' % (
+			sSQL = "SELECT `%s` FROM `%s`.`%s` WHERE %s" % (
 				self._dStruct['rev_field'],
 				self._dStruct['db'],
 				self._dStruct['table'],
@@ -3564,15 +3565,15 @@ class Record(Record_Base.Record):
 					lValues.append('`%s` = NULL' % f)
 
 		# Generate SQL
-		lSql = [ (
-			'UPDATE `%s`.`%s` SET %s '
-			'WHERE %s' % (
+		lSql = [
+			"UPDATE `%s`.`%s` SET %s WHERE %s" % (
 				self._dStruct['db'],
 				self._dStruct['table'],
 				', '.join(lValues),
 				sWhere
-			)
-		), 'SET @_SAVED = ROW_COUNT()' ]
+			),
+			"SET @_SAVED = ROW_COUNT()"
+		]
 
 		# If changes are required
 		if self._dStruct['changes'] and changes != False:
@@ -3611,9 +3612,9 @@ class Record(Record_Base.Record):
 
 			# Generate the INSERT statement
 			lSql.append(
-				'INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) '
-				'VALUES(%s, CURRENT_TIMESTAMP, \'%s\') '
-				'IF @_SAVED > 0' % (
+				"INSERT INTO `%s`.`%s_changes` (`%s`, `created`, `items`) "
+				"SELECT %s, CURRENT_TIMESTAMP, '%s' "
+				"WHERE @_SAVED > 0" % (
 					self._dStruct['db'],
 					self._dStruct['table'],
 					sPrimaryKey,
@@ -3948,8 +3949,8 @@ class Record(Record_Base.Record):
 
 		# Generate the CREATE statement
 		lSQL = [
-			'CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) '\
-			'ENGINE=%s CHARSET=%s COLLATE=%s' % (
+			"CREATE TABLE IF NOT EXISTS `%s`.`%s` (%s, %s) "
+			"ENGINE=%s CHARSET=%s COLLATE=%s" % (
 				dStruct['db'],
 				dStruct['table'],
 				', '.join(lFields),
@@ -3965,12 +3966,12 @@ class Record(Record_Base.Record):
 
 			# Generate the CREATE statement
 			lSQL.append(
-				'CREATE TABLE IF NOT EXISTS `%s`.`%s_changes` (' \
-				'%s, ' \
-				'`created` datetime not null DEFAULT CURRENT_TIMESTAMP, ' \
-				'`items` text not null, ' \
-				'index %s) ' \
-				'ENGINE=%s CHARSET=%s COLLATE=%s' % (
+				"CREATE TABLE IF NOT EXISTS `%s`.`%s_changes` (" \
+				"%s, " \
+				"`created` datetime not null DEFAULT CURRENT_TIMESTAMP, " \
+				"`items` text not null, " \
+				"index %s) " \
+				"ENGINE=%s CHARSET=%s COLLATE=%s" % (
 					dStruct['db'],
 					dStruct['table'],
 					', '.join(dChanges['fields']),
@@ -4003,10 +4004,10 @@ class Record(Record_Base.Record):
 		dStruct = cls.struct(custom)
 
 		# Generate the DROP statement
-		sSQL = 'drop table `%s`.`%s`' % (
-					dStruct['db'],
-					dStruct['table'],
-				)
+		SQL = "DROP TABLE `%s`.`%s`" % (
+			dStruct['db'],
+			dStruct['table'],
+		)
 
 		# Delete the table
 		Commands.execute(dStruct['host'], sSQL)
@@ -4015,10 +4016,10 @@ class Record(Record_Base.Record):
 		if dStruct['changes']:
 
 			# Generate the DROP statement
-			sSQL = 'drop table `%s`.`%s_changes`' % (
-						dStruct['db'],
-						dStruct['table'],
-					)
+			sSQL = "DROP TABLE `%s`.`%s_changes`" % (
+				dStruct['db'],
+				dStruct['table'],
+			)
 
 			# Delete the table
 			Commands.execute(dStruct['host'], sSQL)
@@ -4132,9 +4133,10 @@ class Record(Record_Base.Record):
 
 			# Generate the SQL
 			lSQL.append(
-				'CREATE TRIGGER `%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`\n' \
-				'%(timeu)s %(eventu)s ON `%(db)s`.`%(table)s`\n' \
-				'%(sql)s;' % {
+				"CREATE TRIGGER "
+				"`%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`\n" \
+				"%(timeu)s %(eventu)s ON `%(db)s`.`%(table)s`\n" \
+				"%(sql)s" % {
 					'db': dStruct['db'],
 					'table': dStruct['table'],
 					'name': ('name' in d and ('_%s' % d['name']) or ''),
@@ -4204,8 +4206,8 @@ class Record(Record_Base.Record):
 
 			# Generate the SQL
 			lSQL.append(
-				'DROP TRIGGER IF EXISTS `%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`'
-				% {
+				"DROP TRIGGER IF EXISTS "
+				"`%(db)s`.`%(table)s_%(time)s_%(event)s%(name)s`" % {
 					'db': dStruct['db'],
 					'table': dStruct['table'],
 					'name': ('name' in d and ('_%s' % d['name']) or ''),
@@ -4249,7 +4251,7 @@ class Record(Record_Base.Record):
 		cls._triggers_validate(dStruct)
 
 		# Init the SQL by locking the table
-		lSQL = [ 'LOCK TABLES `%(db)s`.`%(table)s` WRITE' % dStruct ]
+		lSQL = [ "LOCK TABLES `%(db)s`.`%(table)s` WRITE" % dStruct ]
 
 		# Call the _drop method to generate the DROP TRIGGER
 		lSQL.extend(
@@ -4389,9 +4391,7 @@ class Record(Record_Base.Record):
 				raise ValueError('filter', 'must be a dict or dict[]')
 
 		# Generate the SQL to update the field
-		sSQL = 'UPDATE `%s`.`%s` ' \
-				'SET `%s` = %s ' \
-				'%s' % (
+		sSQL = "UPDATE `%s`.`%s` SET `%s` = %s %s" % (
 			dStruct['db'], dStruct['table'],
 			field, cls.escape(dStruct, field, value),
 			lWhere and ('WHERE %s' % ' AND '.join(lWhere)) or ''
@@ -4520,9 +4520,7 @@ class Record(Record_Base.Record):
 			lSets.append(f"`{k}` = {cls.escape(dStruct, k, v)}")
 
 		# Generate the SQL to update the field
-		sSQL = 'UPDATE `%s`.`%s` ' \
-				'SET %s ' \
-				'%s' % (
+		sSQL = "UPDATE `%s`.`%s` SET %s %s" % (
 			dStruct['db'],
 			dStruct['table'],
 			', '.join(lSets),
@@ -4551,7 +4549,7 @@ class Record(Record_Base.Record):
 		dStruct = cls.struct(custom)
 
 		# Get the UUID
-		return Commands.select(dStruct['host'], 'select uuid()', ESelect.CELL)
+		return Commands.select(dStruct['host'], "SELECT uuid()", ESelect.CELL)
 
 # Register the module with the Base
 Record_Base.register_type('mysql', sys.modules[__name__])
