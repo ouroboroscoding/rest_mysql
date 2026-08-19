@@ -62,20 +62,20 @@ To solve this, make aliases to the global functons
 from rest_mysql.Record_MySQL import Commands
 
 db = 'your_db_name'
-Commands.execute('primary', [
+Commands.execute('primary', [ (
 
-	"CREATE FUNCTION `%s`.`BIN_TO_UUID`(b BINARY(16))\n" \
-	"RETURNS CHAR(36) DETERMINISTIC\n" \
-	"BEGIN\n" \
-	"	return BIN_TO_UUID(b);\n" \
-	"END" % db,
+	"CREATE FUNCTION `%s`.`BIN_TO_UUID`(b BINARY(16)) "
+	"RETURNS CHAR(36) DETERMINISTIC "
+	"BEGIN "
+	"	return BIN_TO_UUID(b); "
+	"END" % db ), (
 
-	"CREATE FUNCTION `%s`.`UUID_TO_BIN`(uuid CHAR(36))\n" \
-	"RETURNS BINARY(16) DETERMINISTIC\n" \
-	"BEGIN\n" \
-	"	RETURN UUID_TO_BIN(uuid);\n" \
+	"CREATE FUNCTION `%s`.`UUID_TO_BIN`(uuid CHAR(36)) "
+	"RETURNS BINARY(16) DETERMINISTIC "
+	"BEGIN "
+	"	RETURN UUID_TO_BIN(uuid); "
 	"END" % db
-])
+) ])
 ```
 
 ### MariaDB
@@ -88,26 +88,26 @@ the functions to the database schema like so
 from rest_mysql.Record_MySQL import Commands
 
 db = 'your_db_name'
-Commands.execute('primary', [
+Commands.execute('primary', [ (
 
-	"CREATE FUNCTION `%s`.`BIN_TO_UUID`(b BINARY(16))\n" \
-	"RETURNS CHAR(36) DETERMINISTIC\n" \
-	"BEGIN\n" \
-	"	DECLARE hexStr CHAR(32);\n" \
-	"	SET hexStr = HEX(b);\n" \
-	"	RETURN LOWER(CONCAT(" \
-			"SUBSTR(hexStr, 1, 8), '-', " \
-			"SUBSTR(hexStr, 9, 4), '-', " \
-			"SUBSTR(hexStr, 13, 4), '-', " \
-			"SUBSTR(hexStr, 17, 4), '-', " \
-			"SUBSTR(hexStr, 21)" \
-		"));\n" \
-	"END" % db,
+	"CREATE FUNCTION `%s`.`BIN_TO_UUID`(b BINARY(16)) "
+	"RETURNS CHAR(36) DETERMINISTIC "
+	"BEGIN "
+	"	DECLARE hexStr CHAR(32); "
+	"	SET hexStr = HEX(b); "
+	"	RETURN LOWER(CONCAT("
+			"SUBSTR(hexStr, 1, 8), '-', "
+			"SUBSTR(hexStr, 9, 4), '-', "
+			"SUBSTR(hexStr, 13, 4), '-', "
+			"SUBSTR(hexStr, 17, 4), '-', "
+			"SUBSTR(hexStr, 21)"
+		")); "
+	"END" % db ), (
 
-	"CREATE FUNCTION `%s`.`UUID_TO_BIN`(uuid CHAR(36))\n" \
-	"RETURNS BINARY(16) DETERMINISTIC\n" \
-	"BEGIN\n" \
-		"RETURN UNHEX(REPLACE(uuid, '-', ''));\n" \
+	"CREATE FUNCTION `%s`.`UUID_TO_BIN`(uuid CHAR(36)) "
+	"RETURNS BINARY(16) DETERMINISTIC "
+	"BEGIN "
+		"RETURN UNHEX(REPLACE(uuid, '-', '')); "
 	"END" % db
-])
+) ])
 ```
