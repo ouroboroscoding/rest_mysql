@@ -1,5 +1,9 @@
 # rest_mysql releases
 
+## 1.3.3
+- Added checking for duplicate key errors when running Commands.select since it
+can now take multiple statements as long as the last one is a SELECT.
+
 ## 1.3.2
 - Added *_sql versions of all methods that select / update / delete records to
 allow for combining statements to do atomic changes. i.e. insert has insert_sql,
