@@ -1,5 +1,10 @@
 # rest_mysql releases
 
+## 1.3.4
+- Fixed bug caused by previous hotfix where Commands.execute / Commands.select
+accidently called Commands.insert on operational errors.
+- Fixed bug where not all operational error codes were being checked properly.
+
 ## 1.3.3
 - Added checking for duplicate key errors when running Commands.select since it
 can now take multiple statements as long as the last one is a SELECT.
