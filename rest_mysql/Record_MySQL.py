@@ -448,20 +448,7 @@ class Commands(object):
 				# Return the changed rows
 				return iRet
 
-		# If the SQL is bad
-		except (pymysql.err.ProgrammingError, pymysql.err.InternalError) as e:
-
-			# Raise an SQL Exception
-			raise ValueError(
-				e.args[0],
-				'SQL error (%s): %s\n%s' % (
-					str(e.args[0]),
-					str(e.args[1]),
-					str(sql)
-				)
-			)
-
-		# Else, a duplicate key error
+		# Duplicate key errors
 		except pymysql.err.IntegrityError as e:
 
 			# Pull out the value and the index name
@@ -479,22 +466,17 @@ class Commands(object):
 			# Else, raise an unkown duplicate
 			raise DuplicateException(e.args[0], e.args[1])
 
-		# Else there's an operational problem so close the connection and
-		#	restart
-		except pymysql.err.OperationalError as e:
-			print('----------------------------------------')
-			print('OPERATIONAL ERROR')
-			print(e.args)
-			print('')
+		# There's an operational problem so close the connection and restart
+		except (pymysql.err.InternalError, pymysql.err.OperationalError) as e:
 
 			# If the error code is one that won't change
-			if e.args[0] in [1051, 1054, 1136, 1359]:
+			if e.args[0] in [1054]:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
 						str(e.args[0]),
 						str(e.args[1]),
-						str(s)
+						str(sql)
 					)
 				)
 
@@ -507,7 +489,20 @@ class Commands(object):
 
 			# Clear the connection and try again
 			_clear_connection(host)
-			return cls.execute(host, sql, errcnt)
+			return cls.insert(host, sql, errcnt)
+
+		# The SQL is bad so raise a value error immediately
+		except pymysql.err.ProgrammingError as e:
+
+			# Raise an SQL Exception immediately
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(sql)
+				)
+			)
 
 		# Else, catch any Exception
 		except Exception as e:
@@ -554,26 +549,10 @@ class Commands(object):
 				# Execute the insert statement
 				oCursor.execute(sql)
 
-				# Get the ID
-				mInsertID = oCursor.lastrowid
+				# Get and return the last inserted ID
+				return oCursor.lastrowid
 
-				# Return the last inserted ID
-				return mInsertID
-
-		# If the SQL is bad
-		except pymysql.err.ProgrammingError as e:
-
-			# Raise an SQL Exception
-			raise ValueError(
-				e.args[0],
-				'SQL error (%s): %s\n%s' % (
-					str(e.args[0]),
-					str(e.args[1]),
-					str(sql)
-				)
-			)
-
-		# Else, a duplicate key error
+		# Duplicate key errors
 		except pymysql.err.IntegrityError as e:
 
 			# Pull out the value and the index name
@@ -591,9 +570,8 @@ class Commands(object):
 			# Else, raise an unkown duplicate
 			raise DuplicateException(e.args[0], e.args[1])
 
-		# Else there's an operational problem so close the connection and
-		#	restart
-		except pymysql.err.OperationalError as e:
+		# There's an operational problem so close the connection and restart
+		except (pymysql.err.InternalError, pymysql.err.OperationalError) as e:
 
 			# If the error code is one that won't change
 			if e.args[0] in [1054]:
@@ -616,6 +594,19 @@ class Commands(object):
 			# Clear the connection and try again
 			_clear_connection(host)
 			return cls.insert(host, sql, errcnt)
+
+		# The SQL is bad so raise a value error immediately
+		except pymysql.err.ProgrammingError as e:
+
+			# Raise an SQL Exception immediately
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(sql)
+				)
+			)
 
 		# Else, catch any Exception
 		except Exception as e:
@@ -731,22 +722,26 @@ class Commands(object):
 				# Return the results
 				return mData
 
-		# If the SQL is bad
-		except pymysql.err.ProgrammingError as e:
+		# Duplicate key errors
+		except pymysql.err.IntegrityError as e:
 
-			# Raise an SQL Exception
-			raise ValueError(
-				e.args[0],
-				'SQL error (%s): %s\n%s' % (
-					str(e.args[0]),
-					str(e.args[1]),
-					str(sql)
+			# Pull out the value and the index name
+			oMatch = DUP_ENTRY_REGEX.match(e.args[1])
+
+			# If we got a match
+			if oMatch:
+
+				# Raise a Duplicate Record Exception
+				raise DuplicateException(
+					oMatch.group(1),
+					oMatch.group(2)
 				)
-			)
 
-		# Else there's an operational problem so close the connection and
-		#	restart
-		except pymysql.err.OperationalError as e:
+			# Else, raise an unkown duplicate
+			raise DuplicateException(e.args[0], e.args[1])
+
+		# There's an operational problem so close the connection and restart
+		except (pymysql.err.InternalError, pymysql.err.OperationalError) as e:
 
 			# If the error code is one that won't change
 			if e.args[0] in [1054]:
@@ -768,7 +763,20 @@ class Commands(object):
 
 			# Clear the connection and try again
 			_clear_connection(host)
-			return cls.select(host, sql, seltype, field, errcnt)
+			return cls.insert(host, sql, errcnt)
+
+		# The SQL is bad so raise a value error immediately
+		except pymysql.err.ProgrammingError as e:
+
+			# Raise an SQL Exception immediately
+			raise ValueError(
+				e.args[0],
+				'SQL error (%s): %s\n%s' % (
+					str(e.args[0]),
+					str(e.args[1]),
+					str(sql)
+				)
+			)
 
 		# Else, catch any Exception
 		except Exception as e:
