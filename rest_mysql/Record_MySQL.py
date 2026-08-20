@@ -397,8 +397,11 @@ class Commands(object):
 	Used to directly interface with MySQL
 	"""
 
-	# Output SQL for debugging?
+	_op_err_codes: list[int] = [ 1051, 1054, 1136, 1359 ]
+	""" Operational error codes that will fail every time """
+
 	_verbose: bool = False
+	""" Verbose flag """
 
 	@classmethod
 	def execute(cls, host: str, sql: str | List[str], errcnt: int = 0) -> int:
@@ -470,7 +473,7 @@ class Commands(object):
 		except (pymysql.err.InternalError, pymysql.err.OperationalError) as e:
 
 			# If the error code is one that won't change
-			if e.args[0] in [1054]:
+			if e.args[0] in cls._op_err_codes:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
@@ -489,7 +492,7 @@ class Commands(object):
 
 			# Clear the connection and try again
 			_clear_connection(host)
-			return cls.insert(host, sql, errcnt)
+			return cls.execute(host, sql, errcnt)
 
 		# The SQL is bad so raise a value error immediately
 		except pymysql.err.ProgrammingError as e:
@@ -574,7 +577,7 @@ class Commands(object):
 		except (pymysql.err.InternalError, pymysql.err.OperationalError) as e:
 
 			# If the error code is one that won't change
-			if e.args[0] in [1054]:
+			if e.args[0] in cls._op_err_codes:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
@@ -744,7 +747,7 @@ class Commands(object):
 		except (pymysql.err.InternalError, pymysql.err.OperationalError) as e:
 
 			# If the error code is one that won't change
-			if e.args[0] in [1054]:
+			if e.args[0] in cls._op_err_codes:
 				raise ValueError(
 					e.args[0],
 					'SQL error (%s): %s\n%s' % (
@@ -763,7 +766,7 @@ class Commands(object):
 
 			# Clear the connection and try again
 			_clear_connection(host)
-			return cls.insert(host, sql, errcnt)
+			return cls.select(host, sql, errcnt)
 
 		# The SQL is bad so raise a value error immediately
 		except pymysql.err.ProgrammingError as e:
