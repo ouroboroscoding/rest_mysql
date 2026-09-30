@@ -1357,6 +1357,9 @@ class Record(Record_Base.Record):
 		"""Create Many
 
 		Inserts multiple records at once, returning the number of created rows.
+		Do not expect primary keys to be set regardless of the fact this method
+		expects Record instances. If you absolutely must know the IDs, use
+		create() or create_now() instead.
 
 		Arguments:
 			records (Record_MySQL.Record[]): A list of Record instances to
@@ -1423,13 +1426,27 @@ class Record(Record_Base.Record):
 				'create_many'
 			)
 
+		# Assume no auto primary
+		bAutoPrimary = False
+
 		# Create the list of fields
 		lFields = [ ]
 		for f in dStruct['tree'].keys():
 
-			# If it's not the primary key, or it is but it's not auto incrmented
-			if f != dStruct['primary'] or \
-				dStruct['auto_primary'] is not True:
+			# If it the primary key
+			if f == dStruct['primary']:
+
+				# If its not auto primary
+				if not dStruct['auto_primary']:
+					lFields.append(f)
+
+				# Else, it is auto primary, and it has a string associated
+				elif 'auto_primary_call' in dStruct:
+					bAutoPrimary = True
+					lFields.append(f)
+
+			# Else, it's a regular key
+			else:
 				lFields.append(f)
 
 		# If we have revisions, add the field
@@ -1450,20 +1467,28 @@ class Record(Record_Base.Record):
 			lValues = [ ]
 			for f in lFields:
 
-				# If it's the primary, and auto_primary is a string
-				if f == dStruct['primary'] and \
-					dStruct['auto_primary'] is not False:
+				# If it's the primary and has a specific string to generate the
+				#	key
+				if f == dStruct['primary'] and bAutoPrimary:
+					lValues.append(dStruct['auto_primary_call'][0])
 
-					# If we generate the key ourselves, add it
-					if isinstance(dStruct['auto_primary'], str):
-						lValues.append('%s' % dStruct['auto_primary'])
-
+				# Else, we just use the record regardless of primary or not
 				else:
 
-					if f in o and o[f] != None:
-						lValues.append(cls.escape(dStruct, f, o[f]))
+					# If we have the field
+					if f in o:
+
+						# If it's not None, escape it
+						if o[f] is not None:
+							lValues.append(cls.escape(dStruct, f, o[f]))
+
+						# Else, use NULL
+						else:
+							lValues.append('NULL')
+
+					# We have no value, assume the user wants the DEFAULT
 					else:
-						lValues.append('NULL')
+						lValues.append('DEFAULT')
 
 			# Add the record
 			lRecords.append("%s" % ','.join(lValues))
