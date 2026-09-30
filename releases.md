@@ -1,5 +1,9 @@
 # rest_mysql releases
 
+## 1.3.5
+- Fixed a bug in create_many / create_many_sql that wasn't generating primary
+key IDs properly.
+
 ## 1.3.4
 - Fixed bug caused by previous hotfix where Commands.execute / Commands.select
 accidently called Commands.insert on operational errors.
